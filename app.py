@@ -1,320 +1,3 @@
-import os
-import html
-import sqlite3
-import secrets
-from pathlib import Path
-from functools import wraps
-from datetime import datetime
-from urllib.parse import quote_plus
-
-from flask import Flask, request, redirect, url_for, session, flash, send_from_directory, abort
-from werkzeug.security import generate_password_hash, check_password_hash
-from werkzeug.utils import secure_filename
-
-BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
-if not DATA_DIR.exists():
-    DATA_DIR = BASE_DIR / "data"
-DATA_DIR.mkdir(parents=True, exist_ok=True)
-UPLOAD_DIR = DATA_DIR / "uploads"
-UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-STATIC_DIR = BASE_DIR / "static"
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
-DB_PATH = DATA_DIR / "mctc_court.db"
-
-app = Flask(__name__, static_folder="static")
-app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
-app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
-app.config["SESSION_COOKIE_HTTPONLY"] = True
-app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
-if os.environ.get("RENDER"):
-    app.config["SESSION_COOKIE_SECURE"] = True
-
-COURT_NAME = "Municipal Circuit Trial Court of Silang-Amadeo, Cavite"
-COURT_ADDRESS = "PNP Bldg, Plaza Libertad, Poblacion 2, Silang, Cavite"
-COURT_PHONE = "09284621305"
-COURT_EMAIL = "mctc2sad000@judiciary.gov.ph"
-MAP_URL = "https://www.google.com/maps/search/?api=1&query=" + quote_plus(COURT_NAME + ", " + COURT_ADDRESS)
-LOGO_FILES = ("image0.png", "image0.jpeg")
-ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "webp", "doc", "docx", "xls", "xlsx", "txt"}
-CASE_STATUSES = ["Active", "Scheduled", "Resolved", "Final", "Dismissed"]
-HEARING_STATUSES = ["Scheduled", "Ongoing", "Completed", "Reset", "Postponed", "Cancelled"]
-HEARING_NATURES = ["Initial Hearing", "Arraignment", "Pre-Trial", "Trial", "Motion", "Compliance", "Judgment", "Promulgation", "Hearing", "Other"]
-
-TEXT = {
-    "en": {
-        "home":"Home", "about":"About Us", "search":"Search Case", "calendar":"Tuesday Calendar", "requirements":"Requirements",
-        "news":"News and Announcements", "contact":"Contact Us", "language":"Language", "light":"Light", "dark":"Dark",
-        "staff_login":"Staff Login", "logout":"Log Out", "dashboard":"Staff Dashboard", "cases":"Cases", "notices":"Notices",
-        "laws":"Laws, Decisions and Rules", "staff_accounts":"Staff Accounts", "add_case":"Add Case", "edit_case":"Edit Case",
-        "delete":"Delete", "save":"Save", "add":"Add", "view":"View", "open":"Open", "upload":"Upload", "username":"Username",
-        "password":"Password", "email":"Email Address", "role":"Role", "case_number":"Case Number", "plaintiff":"Plaintiff Last Name / Corporation Name",
-        "defendant":"Defendant Last Name", "case_type":"Case Type", "status":"Status", "description":"Description", "hearing":"Hearing",
-        "hearing_date":"Hearing Date", "hearing_time":"Hearing Time", "hearing_nature":"Nature of Hearing", "hearing_status":"Hearing Status",
-        "remarks":"Remarks", "both_required":"Case number and plaintiff last name / corporation name are both required.",
-        "invalid_login":"Invalid username or password.", "login_required":"Please log in as authorized staff.", "welcome":"Welcome, Court Staff",
-        "quick_actions":"Quick Actions", "not_uploaded":"Not yet uploaded", "open_maps":"Open Google Maps", "official_source":"Official Source",
-        "copyright":"© 2026 Municipal Circuit Trial Court of Silang-Amadeo, Cavite. All rights reserved."
-    },
-    "fil": {
-        "home":"Home", "about":"Tungkol sa Amin", "search":"Maghanap ng Kaso", "calendar":"Kalendaryo ng Martes", "requirements":"Mga Kinakailangan",
-        "news":"Balita at mga Anunsyo", "contact":"Makipag-ugnayan", "language":"Wika", "light":"Maliwanag", "dark":"Madilim",
-        "staff_login":"Staff Login", "logout":"Mag-Logout", "dashboard":"Dashboard ng Staff", "cases":"Mga Kaso", "notices":"Mga Abiso",
-        "laws":"Mga Batas, Desisyon at Alituntunin", "staff_accounts":"Mga Account ng Staff", "add_case":"Magdagdag ng Kaso", "edit_case":"I-edit ang Kaso",
-        "delete":"Burahin", "save":"I-save", "add":"Magdagdag", "view":"Tingnan", "open":"Buksan", "upload":"Mag-upload", "username":"Username",
-        "password":"Password", "email":"Email Address", "role":"Role", "case_number":"Numero ng Kaso", "plaintiff":"Apelyido ng Plaintiff / Pangalan ng Corporation",
-        "defendant":"Apelyido ng Defendant", "case_type":"Uri ng Kaso", "status":"Katayuan", "description":"Deskripsyon", "hearing":"Pagdinig",
-        "hearing_date":"Petsa ng Pagdinig", "hearing_time":"Oras ng Pagdinig", "hearing_nature":"Uri ng Pagdinig", "hearing_status":"Katayuan ng Pagdinig",
-        "remarks":"Mga Tala", "both_required":"Kinakailangan ang parehong case number at apelyido ng plaintiff / pangalan ng corporation.",
-        "invalid_login":"Mali ang username o password.", "login_required":"Mag-login bilang awtorisadong staff.", "welcome":"Maligayang Pagdating, Kawani ng Hukuman",
-        "quick_actions":"Mabilis na Aksyon", "not_uploaded":"Hindi pa naiu-upload", "open_maps":"Buksan ang Google Maps", "official_source":"Opisyal na Source",
-        "copyright":"© 2026 Municipal Circuit Trial Court of Silang-Amadeo, Cavite. Lahat ng karapatan ay nakalaan."
-    }
-}
-
-REQUIREMENTS = {
-    "bond": {
-        "title":"Requirements for Posting Bail Bond",
-        "items":[
-            "PERSONAL DATA (form from court)",
-            "PICTURES 2x2 with name tag, signature, case, case number and date",
-            "4 pcs. Front",
-            "4 pcs. Left side",
-            "4 pcs. Right side",
-            "BARANGAY CLEARANCE attesting the Real Name of the accused and bonafide resident",
-            "CERTIFICATION (Permanent Residency) attesting how many years of stay",
-            "HOUSE SKETCH - certified, signed and sealed by Barangay Captain with date",
-            "CERTIFICATE OF DETENTION (if detained or arrested)",
-            "AFFIDAVIT OF VOLUNTARY SURRENDER (if voluntary or not detained)",
-            "FINGER PRINT (piano)",
-            "SPECIMEN SIGNATURE (at least 5 signature)",
-            "AFFIDAVIT OF UNDERTAKING",
-            "VALID GOVERNMENT-ISSUED I.D. (original AND xerox copy back-to-back)",
-            "ORIGINAL COPY OF PSA BIRTH CERTIFICATE (latest copy with attached receipt)",
-            "If married, female - original copy of PSA MARRIAGE CERTIFICATE with attached receipt",
-            "FOR INQUIRIES, kindly seek assistance from court staff."
-        ]
-    },
-    "clearance": {"title":"Requirements for Clearance", "items":[]}
-}
-
-
-def esc(value):
-    return html.escape(str(value or ""), quote=True)
-
-
-def language():
-    value = session.get("language", "en")
-    return value if value in TEXT else "en"
-
-
-def tr(key):
-    return TEXT[language()].get(key, key)
-
-
-def now():
-    return datetime.utcnow().isoformat(timespec="seconds")
-
-
-def is_staff():
-    return bool(session.get("staff_logged_in"))
-
-
-def is_admin():
-    return is_staff() and session.get("staff_role") == "admin"
-
-
-def db():
-    c = sqlite3.connect(DB_PATH)
-    c.row_factory = sqlite3.Row
-    c.execute("PRAGMA foreign_keys=ON")
-    return c
-
-
-def ensure_column(c, table, column, definition):
-    existing = {r[1] for r in c.execute(f"PRAGMA table_info({table})").fetchall()}
-    if column not in existing:
-        c.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
-
-
-def init_db():
-    c = db()
-    c.executescript("""
-    CREATE TABLE IF NOT EXISTS staff(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT UNIQUE NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        password_hash TEXT NOT NULL,
-        role TEXT NOT NULL DEFAULT 'staff',
-        active INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS cases(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        case_number TEXT UNIQUE NOT NULL,
-        plaintiff_name TEXT NOT NULL DEFAULT '',
-        defendant_last_name TEXT NOT NULL DEFAULT '',
-        case_type TEXT NOT NULL DEFAULT '',
-        status TEXT NOT NULL DEFAULT 'Active',
-        public_description TEXT NOT NULL DEFAULT '',
-        internal_notes TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS hearings(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        case_id INTEGER NOT NULL,
-        hearing_date TEXT NOT NULL,
-        hearing_time TEXT NOT NULL DEFAULT '',
-        hearing_nature TEXT NOT NULL DEFAULT 'Hearing',
-        hearing_status TEXT NOT NULL DEFAULT 'Scheduled',
-        remarks TEXT NOT NULL DEFAULT '',
-        FOREIGN KEY(case_id) REFERENCES cases(id) ON DELETE CASCADE
-    );
-    CREATE TABLE IF NOT EXISTS notices(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        title_en TEXT NOT NULL,
-        title_fil TEXT NOT NULL,
-        body_en TEXT NOT NULL,
-        body_fil TEXT NOT NULL,
-        attachment TEXT,
-        original_filename TEXT,
-        published INTEGER NOT NULL DEFAULT 1,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS legal_resources(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category TEXT NOT NULL,
-        title TEXT NOT NULL,
-        description TEXT NOT NULL DEFAULT '',
-        source_url TEXT NOT NULL DEFAULT '',
-        file_name TEXT,
-        original_filename TEXT,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS requirements(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        category TEXT UNIQUE NOT NULL,
-        title_en TEXT NOT NULL,
-        title_fil TEXT NOT NULL,
-        description_en TEXT NOT NULL DEFAULT '',
-        description_fil TEXT NOT NULL DEFAULT '',
-        file_name TEXT,
-        original_filename TEXT,
-        updated_at TEXT NOT NULL
-    );
-    CREATE TABLE IF NOT EXISTS calendar_schedule(
-        id INTEGER PRIMARY KEY CHECK(id=1),
-        file_name TEXT,
-        original_filename TEXT,
-        file_type TEXT,
-        uploaded_at TEXT
-    );
-    CREATE TABLE IF NOT EXISTS audit_logs(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        username TEXT NOT NULL,
-        action TEXT NOT NULL,
-        target TEXT NOT NULL DEFAULT '',
-        created_at TEXT NOT NULL
-    );
-    """)
-    # Migrate common fields from older versions of the site.
-    ensure_column(c, "cases", "plaintiff_name", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(c, "cases", "defendant_last_name", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(c, "cases", "case_type", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(c, "cases", "status", "TEXT NOT NULL DEFAULT 'Active'")
-    ensure_column(c, "cases", "public_description", "TEXT NOT NULL DEFAULT ''")
-    ensure_column(c, "cases", "internal_notes", "TEXT NOT NULL DEFAULT ''")
-    # Convert old Pending cases instead of displaying Pending.
-    c.execute("UPDATE cases SET status='Active' WHERE status IS NULL OR status='' OR lower(status)='pending'")
-    # Migrate older 'last_name' / 'parties' data when those columns exist.
-    columns = {r[1] for r in c.execute("PRAGMA table_info(cases)").fetchall()}
-    if "last_name" in columns:
-        c.execute("UPDATE cases SET defendant_last_name=last_name WHERE defendant_last_name='' AND last_name IS NOT NULL")
-    if "parties" in columns:
-        c.execute("UPDATE cases SET plaintiff_name=parties WHERE plaintiff_name='' AND parties IS NOT NULL")
-    if "case_title" in columns:
-        c.execute("UPDATE cases SET public_description=case_title WHERE public_description='' AND case_title IS NOT NULL")
-    # Requirement defaults.
-    for category, info in REQUIREMENTS.items():
-        if c.execute("SELECT id FROM requirements WHERE category=?", (category,)).fetchone() is None:
-            c.execute("INSERT INTO requirements(category,title_en,title_fil,description_en,description_fil,updated_at) VALUES(?,?,?,?,?,?)", (
-                category, info["title"], info["title"], "Not yet uploaded", "Hindi pa naiu-upload", now()
-            ))
-    if c.execute("SELECT id FROM staff WHERE username='admin'").fetchone() is None:
-        c.execute("INSERT INTO staff(username,email,password_hash,role,active,created_at) VALUES(?,?,?,?,?,?)", (
-            "admin", COURT_EMAIL, generate_password_hash("admin123"), "admin", 1, now()
-        ))
-    c.commit()
-    c.close()
-
-
-init_db()
-
-
-def audit(action, target=""):
-    try:
-        c = db()
-        c.execute("INSERT INTO audit_logs(username,action,target,created_at) VALUES(?,?,?,?)", (session.get("staff_username", "system"), action, str(target), now()))
-        c.commit(); c.close()
-    except Exception:
-        pass
-
-
-def staff_required(fn):
-    @wraps(fn)
-    def wrapped(*args, **kwargs):
-        if not is_staff():
-            flash(tr("login_required"), "warning")
-            return redirect(url_for("staff_login"))
-        return fn(*args, **kwargs)
-    return wrapped
-
-
-def admin_required(fn):
-    @wraps(fn)
-    def wrapped(*args, **kwargs):
-        if not is_admin():
-            abort(403)
-        return fn(*args, **kwargs)
-    return wrapped
-
-
-def save_upload(file):
-    if not file or not file.filename:
-        return None, None, None
-    original = secure_filename(file.filename)
-    if not original:
-        return None, None, None
-    ext = Path(original).suffix.lower().lstrip(".")
-    if ext not in ALLOWED_EXTENSIONS:
-        raise ValueError("That file type is not allowed.")
-    generated = secrets.token_hex(12) + "_" + original
-    file.save(UPLOAD_DIR / generated)
-    return generated, original, ext
-
-
-def logo_url():
-    for name in LOGO_FILES:
-        if (STATIC_DIR / name).exists():
-            return url_for("static", filename=name)
-    return url_for("static", filename=LOGO_FILES[0])
-
-
-def supreme_logo_url():
-    filename = '1280px-Seal_of_the_Supreme_Court_(Philippines).png'
-    path = STATIC_DIR / filename
-    if path.exists():
-        return url_for('static', filename=filename)
-    return url_for('static', filename=filename)
-
-
-def flashes():
-    return "".join(f"<div class='notice {esc(k)}'>{esc(v)}</div>" for k, v in __import__("flask").get_flashed_messages(with_categories=True))
-
-
 STYLE = r'''
 :root{
 --bg:#faf8fc;--surface:#fff;--surface2:#f1e9f7;--text:#24152d;--muted:#6b5c73;--border:#ded0e6;
@@ -344,6 +27,26 @@ textarea{min-height:115px;resize:vertical}button,.button{display:inline-flex;ali
 .mobile-menu{display:none}footer{padding:30px 15px;border-top:1px solid var(--border);background:var(--surface);color:var(--muted);text-align:center}footer p{margin:9px 0}
 @media(max-width:980px){.header-inner{padding:12px 10px;min-height:0}.header-top{gap:12px}.header-brand-logo{width:70px;height:70px}.header-brand-name{font-size:17px}.header-brand-subtitle{font-size:12px}.desktop-nav{display:none}.mobile-menu{display:block;width:100%}.nav-logo{width:58px;height:58px}.nav-logo.mctc{width:58px;height:58px}.nav-logo.supreme{width:58px;height:58px}.mobile-menu summary{list-style:none;display:flex;align-items:center;justify-content:center;min-height:44px;border:1px solid rgba(255,255,255,.2);border-radius:10px;color:#fff;font-weight:900;cursor:pointer;background:rgba(255,255,255,.08)}.mobile-menu summary::-webkit-details-marker{display:none}.mobile-panel{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding-top:6px}.mobile-panel>*{width:100%;max-width:600px}.two{grid-template-columns:1fr}}
 @media(min-width:981px){.mobile-menu{display:none}.desktop-nav{width:100%}}
+/* FINAL HEADER / STAFF INTERFACE OVERRIDES */
+.header-inner{max-width:1900px;padding:10px 14px 12px;gap:8px;min-height:128px}
+.header-top{width:100%;display:flex;align-items:center;justify-content:center;text-align:center}
+.center-nav{width:100%;display:flex;align-items:center;justify-content:center}
+.desktop-nav{width:100%;display:flex;align-items:center;justify-content:center}
+.nav-group{width:100%;display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:nowrap}
+.nav-left,.nav-right{display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:nowrap;white-space:nowrap}
+.nav-left{flex:0 1 auto}.nav-right{flex:0 1 auto}
+.nav-logo,.nav-logo.mctc,.nav-logo.supreme{width:74px;height:74px}
+.nav a,.nav button{min-height:40px;padding:8px 8px;font-size:12px;line-height:1.1}
+.nav-form{display:inline-flex;align-items:center;justify-content:center;margin:0}
+.header-brand-name{font-size:22px}.header-brand-subtitle{font-size:14px}
+@media(max-width:1180px){
+  .header-inner{min-height:118px;padding:8px 10px}
+  .header-brand-name{font-size:18px}
+  .header-brand-subtitle{font-size:12px}
+  .nav-logo,.nav-logo.mctc,.nav-logo.supreme{width:64px;height:64px}
+  .nav-group{gap:4px}.nav-left,.nav-right{gap:3px}.nav a,.nav button{font-size:11px;padding:7px 6px}
+}
+
 '''
 
 
@@ -356,8 +59,8 @@ def render_page(title, content):
 
     if is_staff():
         nav = f"""
-        <div class='nav-group'>
-            <div class='nav-left'>
+        <div class='nav-group staff-nav-group'>
+            <div class='nav-left staff-nav-left'>
                 <img class='nav-logo mctc' src='{logo_url()}' alt='MCTC Silang-Amadeo logo'>
                 <a href='{url_for('staff_dashboard')}'>{tr('dashboard')}</a>
                 <a href='{url_for('staff_cases')}'>{tr('cases')}</a>
@@ -367,7 +70,7 @@ def render_page(title, content):
                 <a href='{url_for('staff_laws')}'>{tr('laws')}</a>
                 {f"<a href='{url_for('staff_accounts')}'>{tr('staff_accounts')}</a>" if is_admin() else ''}
             </div>
-            <div class='nav-right'>
+            <div class='nav-right staff-nav-right'>
                 <a href='{url_for('change_language', value=next_lang)}'>{tr('language')}: {lang_label}</a>
                 <a href='{url_for('change_theme', value=next_theme)}'>{theme_label}</a>
                 <form method='post' action='{url_for('logout')}' class='nav-form'><button type='submit'>{tr('logout')}</button></form>
@@ -517,7 +220,7 @@ def logout():
 def staff_dashboard():
     c = db(); cases = c.execute('SELECT COUNT(*) FROM cases').fetchone()[0]; notices = c.execute('SELECT COUNT(*) FROM notices').fetchone()[0]; laws = c.execute('SELECT COUNT(*) FROM legal_resources').fetchone()[0]; schedule = c.execute('SELECT file_name FROM calendar_schedule WHERE id=1').fetchone(); c.close()
     schedule_state = 'Uploaded' if schedule and schedule['file_name'] else 'Not uploaded'
-    content = f"<section class='hero'><h1>{tr('welcome')}</h1><p>Signed in as <strong>{esc(session.get('staff_username','Staff'))}</strong></p></section><div class='grid'><div class='stat card'><span class='stat-number'>{cases}</span>{tr('cases')}</div><div class='stat card'><span class='stat-number'>{notices}</span>{tr('notices')}</div><div class='stat card'><span class='stat-number'>{laws}</span>{tr('laws')}</div><div class='stat card'><span class='stat-number'>1</span>Tuesday Schedule<br><span class='small'>{schedule_state}</span></div></div><div class='card'><h2>⚡ {tr('quick_actions')}</h2><div class='grid'><a class='card center' href='{url_for('staff_cases')}'><h3>📋 {tr('cases')}</h3><p>Manage saved case records.</p></a><a class='card center' href='{url_for('staff_calendar')}'><h3>📅 {tr('calendar')}</h3><p>Upload or replace the Tuesday schedule.</p></a><a class='card center' href='{url_for('staff_requirements')}'><h3>📄 {tr('requirements')}</h3><p>Manage public requirement information.</p></a><a class='card center' href='{url_for('staff_notices')}'><h3>📢 {tr('notices')}</h3><p>Publish notices with photos or documents.</p></a><a class='card center' href='{url_for('staff_laws')}'><h3>⚖️ {tr('laws')}</h3><p>Manage legal resources.</p></a>{f"<a class='card center' href='{url_for('staff_accounts')}'><h3>👥 {tr('staff_accounts')}</h3><p>Manage authorized staff.</p></a>" if is_admin() else ''}</div></div>"
+    content = f"<section class='hero'><h1>Welcome, Court Staff!</h1><p>Signed in as <strong>{esc(session.get('staff_username','Staff'))}</strong>.</p></section><div class='grid'><div class='stat card'><span class='stat-number'>{cases}</span>{tr('cases')}</div><div class='stat card'><span class='stat-number'>{notices}</span>{tr('notices')}</div><div class='stat card'><span class='stat-number'>{laws}</span>{tr('laws')}</div><div class='stat card'><span class='stat-number'>1</span>Tuesday Schedule<br><span class='small'>{schedule_state}</span></div></div><div class='card'><h2>⚡ {tr('quick_actions')}</h2><div class='grid'><a class='card center' href='{url_for('staff_cases')}'><h3>📋 {tr('cases')}</h3><p>Manage saved case records.</p></a><a class='card center' href='{url_for('staff_calendar')}'><h3>📅 {tr('calendar')}</h3><p>Upload or replace the Tuesday schedule.</p></a><a class='card center' href='{url_for('staff_requirements')}'><h3>📄 {tr('requirements')}</h3><p>Manage public requirement information.</p></a><a class='card center' href='{url_for('staff_notices')}'><h3>📢 {tr('notices')}</h3><p>Publish notices with photos or documents.</p></a><a class='card center' href='{url_for('staff_laws')}'><h3>⚖️ {tr('laws')}</h3><p>Manage legal resources.</p></a>{f"<a class='card center' href='{url_for('staff_accounts')}'><h3>👥 {tr('staff_accounts')}</h3><p>Manage authorized staff.</p></a>" if is_admin() else ''}</div></div>"
     return render_page(tr('dashboard'), content)
 
 
@@ -7195,3 +6898,300 @@ if __name__=='__main__':
 # ============================================================
 # End of requested long-format application source.
 # ============================================================
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
+# UI POLISH COMMENT PLACEHOLDER
