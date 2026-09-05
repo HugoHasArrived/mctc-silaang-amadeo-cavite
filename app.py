@@ -95,27 +95,6 @@ REQUIREMENTS = {
             "FOR INQUIRIES, kindly seek assistance from court staff."
         ]
     },
-    "cash_bond": {
-        "title":"Requirements for Cash Bond",
-        "items":[
-            "PERSONAL DATA",
-            "PICTURES 2x2 with name tag, signature, case, case number and date",
-            "4 pcs. Front",
-            "4 pcs. Left side",
-            "4 pcs. Right side",
-            "BARANGAY CLEARANCE attesting the Real Name of the accused and bonafide resident",
-            "CERTIFICATION (Permanent Residency) attesting how many year of stay",
-            "HOUSE SKETCH - Certified, signed and seal by Brgy. Captain with date",
-            "CERTIFICATE OF DETENTION (if detained or arrested)",
-            "AFFIDAVIT OF VOLUNTARY SURRENDER (if voluntary or not detained)",
-            "Finger Print (Piano)",
-            "Specimen Signature at least 5 signature",
-            "Affidavit of Undertaking",
-            "Valid I.D (Government issued I.D) (Original and Xerox back to back)",
-            "Original Copy of PSA Birth Certificate with attached receipt",
-            "If married, female - original copy of PSA Marriage Certificate with attached receipt"
-        ]
-    },
     "clearance": {"title":"Requirements for Clearance", "items":[]}
 }
 
@@ -362,7 +341,7 @@ textarea{min-height:115px;resize:vertical}button,.button{display:inline-flex;ali
 .notice{margin:12px 0;padding:14px 16px;border-left:5px solid var(--purple);border-radius:10px;background:var(--surface2)}.notice.warning{border-left-color:var(--warning)}.notice.success{border-left-color:var(--success)}.notice.danger{border-left-color:var(--danger)}
 .status{display:inline-flex;align-items:center;justify-content:center;padding:4px 10px;border-radius:999px;background:var(--surface2);color:var(--purple);font-size:12px;font-weight:900}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{padding:10px;border-bottom:1px solid var(--border);text-align:center;vertical-align:top}th{background:var(--surface2)}.empty{padding:40px;text-align:center;color:var(--muted)}.small{font-size:13px;color:var(--muted)}.stat{text-align:center}.stat-number{display:block;color:var(--purple);font-size:42px;font-weight:900}
 .requirement-list{text-align:left;padding-left:24px}.requirement-list li{margin:8px 0}.schedule-image{display:block;max-width:100%;height:auto;margin:18px auto;border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.15)}.schedule-pdf{width:100%;height:850px;border:1px solid var(--border);border-radius:14px}
-.mobile-menu{display:none}footer{padding:30px 15px;border-top:1px solid var(--border);background:var(--surface);color:var(--muted);text-align:center}
+.mobile-menu{display:none}footer{padding:30px 15px;border-top:1px solid var(--border);background:var(--surface);color:var(--muted);text-align:center}footer p{margin:9px 0}
 @media(max-width:980px){.header-inner{padding:12px 10px;min-height:0}.header-top{gap:12px}.header-brand-logo{width:70px;height:70px}.header-brand-name{font-size:17px}.header-brand-subtitle{font-size:12px}.desktop-nav{display:none}.mobile-menu{display:block;width:100%}.nav-logo{width:58px;height:58px}.nav-logo.mctc{width:58px;height:58px}.nav-logo.supreme{width:58px;height:58px}.mobile-menu summary{list-style:none;display:flex;align-items:center;justify-content:center;min-height:44px;border:1px solid rgba(255,255,255,.2);border-radius:10px;color:#fff;font-weight:900;cursor:pointer;background:rgba(255,255,255,.08)}.mobile-menu summary::-webkit-details-marker{display:none}.mobile-panel{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding-top:6px}.mobile-panel>*{width:100%;max-width:600px}.two{grid-template-columns:1fr}}
 @media(min-width:981px){.mobile-menu{display:none}.desktop-nav{width:100%}}
 '''
@@ -417,7 +396,7 @@ def render_page(title, content):
         """
     mobile = nav.replace("<div class='nav-group'>", "", 1).replace("</div>", "", 1)
     return f"""<!doctype html><html lang='{esc(language())}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='description' content='MCTC Silang-Amadeo Court Information Portal'><title>{esc(title)} - {esc(COURT_NAME)}</title><style>{STYLE}</style></head><body class='{esc(theme)}'>
-<header class='site-header'><div class='header-inner'><div class='header-top'><div class='header-brand-text'><div class='header-brand-name'>{esc(COURT_NAME)}</div><div class='header-brand-subtitle'>Official Court Information Portal</div></div></div><div class='center-nav'><nav class='nav'><div class='desktop-nav'>{nav}</div><details class='mobile-menu'><summary>☰ &nbsp; Menu</summary><div class='mobile-panel'>{mobile}</div></details></nav></div></div></header><main class='container'>{flashes()}{content}</main><footer><strong>{esc(COURT_NAME)}</strong><p>{esc(COURT_ADDRESS)}</p><p><a href='tel:{esc(COURT_PHONE)}'>{esc(COURT_PHONE)}</a><br><a href='mailto:{esc(COURT_EMAIL)}'>{esc(COURT_EMAIL)}</a></p><p><a href='{MAP_URL}' target='_blank' rel='noopener noreferrer'>🗺️ {tr('open_maps')}</a></p><p>{tr('copyright')}</p></footer></body></html>"""
+<header class='site-header'><div class='header-inner'><div class='header-top'><div class='header-brand-text'><div class='header-brand-name'>{esc(COURT_NAME)}</div><div class='header-brand-subtitle'>Official Court Information Portal</div></div></div><div class='center-nav'><nav class='nav'><div class='desktop-nav'>{nav}</div><details class='mobile-menu'><summary>☰ &nbsp; Menu</summary><div class='mobile-panel'>{mobile}</div></details></nav></div></div></header><main class='container'>{flashes()}{content}</main><footer><strong>{esc(COURT_NAME)}</strong><p>{esc(COURT_ADDRESS)}</p><p><a href='tel:{esc(COURT_PHONE)}'>{esc(COURT_PHONE)}</a><br><a href='mailto:{esc(COURT_EMAIL)}'>{esc(COURT_EMAIL)}</a></p><p><a href='{MAP_URL}' target='_blank' rel='noopener noreferrer'>🗺️ {tr('open_maps')}</a></p><p><strong>Office Hours</strong><br>8:00 AM - 5:00 PM</p><p>{tr('copyright')}</p></footer></body></html>"""
 
 
 @app.route("/language/<value>")
@@ -438,8 +417,8 @@ def home():
     cards = "".join(f"<article class='notice'><h3>{esc(n['title_fil'] if language()=='fil' else n['title_en'])}</h3><p>{esc(n['body_fil'] if language()=='fil' else n['body_en'])}</p></article>" for n in notices)
     schedule_link = f"<a class='button secondary' href='{url_for('public_calendar')}'>{tr('view')}</a>" if schedule and schedule['file_name'] else f"<span class='small'>{tr('not_uploaded')}</span>"
     content = f"""
-<section class='hero'><img class='hero-logo' src='{logo_url()}' alt='Official court logo'><h1>{esc(COURT_NAME)}</h1><p>Public court information, case search, requirements, announcements and the Tuesday schedule.</p><div class='actions'><a class='button' href='{url_for('search_cases')}'>🔎 {tr('search')}</a><a class='button secondary' href='{url_for('public_calendar')}'>📅 {tr('calendar')}</a><a class='button secondary' href='{url_for('requirements')}'>📄 {tr('requirements')}</a></div></section>
-<section class='grid'><div class='card center'><h2>🔎 {tr('search')}</h2><p>{tr('both_required')}</p><a class='button' href='{url_for('search_cases')}'>{tr('view')}</a></div><div class='card center'><h2>📅 {tr('calendar')}</h2><p>View the uploaded Tuesday schedule.</p>{schedule_link}</div><div class='card center'><h2>📄 {tr('requirements')}</h2><p>Posting bail bond, cash bond and clearance information.</p><a class='button' href='{url_for('requirements')}'>{tr('view')}</a></div><div class='card center'><h2>📢 {tr('news')}</h2><p>Official notices and announcements.</p><a class='button' href='{url_for('news')}'>{tr('view')}</a></div></section>
+<section class='hero'><img class='hero-logo' src='{logo_url()}' alt='Official court logo'><h1>{esc(COURT_NAME)}</h1><p>Public court information, case search, requirements and announcements.</p><div class='actions'><a class='button' href='{url_for('search_cases')}'>🔎 {tr('search')}</a></div></section>
+<section class='grid'><div class='card center'><h2>🔎 {tr('search')}</h2><p>{tr('both_required')}</p><a class='button' href='{url_for('search_cases')}'>{tr('view')}</a></div><div class='card center'><h2>📅 {tr('calendar')}</h2><p>View the uploaded Tuesday schedule.</p>{schedule_link}</div><div class='card center'><h2>📄 {tr('requirements')}</h2><p>Posting bail bond and clearance information.</p><a class='button' href='{url_for('requirements')}'>{tr('view')}</a></div><div class='card center'><h2>📢 {tr('news')}</h2><p>Official notices and announcements.</p><a class='button' href='{url_for('news')}'>{tr('view')}</a></div></section>
 <section class='card'><h2>📢 {tr('news')}</h2>{cards or '<p class="empty">No announcements yet.</p>'}</section>
 """
     return render_page(tr("home"), content)
@@ -671,7 +650,7 @@ def delete_notice(notice_id):
 @app.route('/staff/requirements')
 @staff_required
 def staff_requirements():
-    c=db(); rows=c.execute('SELECT * FROM requirements ORDER BY id').fetchall(); c.close(); cards=''
+    c=db(); rows=c.execute("SELECT * FROM requirements WHERE category IN ('bond','clearance') ORDER BY id").fetchall(); c.close(); cards=''
     for row in rows:
         title=row['title_fil'] if language()=='fil' else row['title_en']; desc=row['description_fil'] if language()=='fil' else row['description_en']; details=requirement_list(row['category']); link=f"<p><a class='button secondary' href='{url_for('uploaded_file',filename=row['file_name'])}'>{tr('open')}</a></p>" if row['file_name'] else ''
         cards+=f"<div class='card'><h2>{esc(title)}</h2>{details}<p><strong>Current uploaded information:</strong><br>{esc(desc)}</p>{link}<form method='post' action='{url_for('update_requirement',category=row['category'])}' enctype='multipart/form-data'><label>Description</label><textarea name='description'>{esc(desc)}</textarea><label>Official Document</label><input type='file' name='document' accept='.pdf,.png,.jpg,.jpeg,.webp,.doc,.docx'><div class='actions'><button>{tr('save')}</button></div></form></div>"
