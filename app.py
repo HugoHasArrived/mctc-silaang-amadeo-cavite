@@ -352,8 +352,7 @@ a{color:var(--purple);text-decoration:none} body.dark a{color:#ceb7ff} a:hover{t
 .header-brand-logo{width:82px;height:82px;object-fit:contain;background:#fff;border-radius:50%;padding:4px;box-shadow:0 4px 18px rgba(0,0,0,.22);flex:0 0 auto}
 .header-brand-text{display:flex;flex-direction:column;align-items:center;justify-content:center;line-height:1.2}.header-brand-name{font-size:21px;font-weight:900;letter-spacing:.1px}.header-brand-subtitle{font-size:14px;font-weight:600;opacity:.9;margin-top:4px}
 .center-nav{display:flex;align-items:center;justify-content:center;width:100%}
-.nav{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:5px;width:100%}.nav-group{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:5px;width:100%}.nav-left,.nav-right{display:flex;align-items:center;justify-content:center;gap:5px;flex-wrap:wrap}.nav-right{margin-left:auto}.nav-logo{width:60px;height:60px;object-fit:contain;background:#fff;border-radius:50%;padding:3px;box-shadow:0 3px 12px rgba(0,0,0,.2);flex:0 0 auto}.nav-logo.supreme{width:58px;height:58px;padding:2px}
-.nav a,.nav button{min-height:42px;display:inline-flex;align-items:center;justify-content:center;padding:9px 12px;border:0;border-radius:10px;background:transparent;color:#fff;font-size:13px;font-weight:800;text-align:center;white-space:nowrap;cursor:pointer}.nav a:hover,.nav button:hover{background:rgba(255,255,255,.14);color:#fff;text-decoration:none}.nav-form{display:inline-flex;align-items:center;justify-content:center;margin:0}
+.nav{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;width:100%}.nav-group{display:flex;align-items:center;justify-content:center;flex-wrap:wrap;gap:8px;width:100%}.nav-left,.nav-right{display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap}.nav-left{width:auto}.nav-right{width:auto;margin-left:0}.nav-logo{width:78px;height:78px;object-fit:contain;background:#fff;border-radius:50%;padding:4px;box-shadow:0 4px 16px rgba(0,0,0,.22);flex:0 0 auto}.nav-logo.mctc{width:78px;height:78px}.nav-logo.supreme{width:78px;height:78px;padding:3px}.nav a,.nav button{min-height:44px;display:inline-flex;align-items:center;justify-content:center;padding:10px 12px;border:0;border-radius:10px;background:transparent;color:#fff;font-size:13px;font-weight:800;text-align:center;white-space:nowrap;cursor:pointer}.nav a:hover,.nav button:hover{background:rgba(255,255,255,.14);color:#fff;text-decoration:none}.nav-form{display:inline-flex;align-items:center;justify-content:center;margin:0}.nav-divider{width:1px;height:40px;background:rgba(255,255,255,.25);margin:0 2px}
 .brand-area{display:none}.brand-link,.brand{display:none}
 .container{width:94%;max-width:1180px;margin:0 auto;padding:28px 0 70px}.hero{margin:15px 0 24px;padding:48px 20px;border-radius:25px;text-align:center;color:#fff;background:linear-gradient(135deg,var(--deep),var(--purple),var(--purple2))}
 .hero-logo{width:150px;height:150px;object-fit:contain;background:#fff;border-radius:50%;padding:5px;box-shadow:0 8px 28px rgba(0,0,0,.2)}.hero h1{max-width:950px;margin:16px auto;font-size:clamp(30px,5vw,56px);line-height:1.05}
@@ -364,7 +363,7 @@ textarea{min-height:115px;resize:vertical}button,.button{display:inline-flex;ali
 .status{display:inline-flex;align-items:center;justify-content:center;padding:4px 10px;border-radius:999px;background:var(--surface2);color:var(--purple);font-size:12px;font-weight:900}.table-wrap{overflow-x:auto}table{width:100%;border-collapse:collapse}th,td{padding:10px;border-bottom:1px solid var(--border);text-align:center;vertical-align:top}th{background:var(--surface2)}.empty{padding:40px;text-align:center;color:var(--muted)}.small{font-size:13px;color:var(--muted)}.stat{text-align:center}.stat-number{display:block;color:var(--purple);font-size:42px;font-weight:900}
 .requirement-list{text-align:left;padding-left:24px}.requirement-list li{margin:8px 0}.schedule-image{display:block;max-width:100%;height:auto;margin:18px auto;border-radius:14px;box-shadow:0 6px 18px rgba(0,0,0,.15)}.schedule-pdf{width:100%;height:850px;border:1px solid var(--border);border-radius:14px}
 .mobile-menu{display:none}footer{padding:30px 15px;border-top:1px solid var(--border);background:var(--surface);color:var(--muted);text-align:center}
-@media(max-width:980px){.header-inner{padding:12px 10px;min-height:0}.header-top{gap:12px}.header-brand-logo{width:70px;height:70px}.header-brand-name{font-size:17px}.header-brand-subtitle{font-size:12px}.desktop-nav{display:none}.mobile-menu{display:block;width:100%}.nav-logo{width:52px;height:52px}.nav-logo.supreme{width:50px;height:50px}.mobile-menu summary{list-style:none;display:flex;align-items:center;justify-content:center;min-height:44px;border:1px solid rgba(255,255,255,.2);border-radius:10px;color:#fff;font-weight:900;cursor:pointer;background:rgba(255,255,255,.08)}.mobile-menu summary::-webkit-details-marker{display:none}.mobile-panel{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding-top:6px}.mobile-panel>*{width:100%;max-width:600px}.two{grid-template-columns:1fr}}
+@media(max-width:980px){.header-inner{padding:12px 10px;min-height:0}.header-top{gap:12px}.header-brand-logo{width:70px;height:70px}.header-brand-name{font-size:17px}.header-brand-subtitle{font-size:12px}.desktop-nav{display:none}.mobile-menu{display:block;width:100%}.nav-logo{width:58px;height:58px}.nav-logo.mctc{width:58px;height:58px}.nav-logo.supreme{width:58px;height:58px}.mobile-menu summary{list-style:none;display:flex;align-items:center;justify-content:center;min-height:44px;border:1px solid rgba(255,255,255,.2);border-radius:10px;color:#fff;font-weight:900;cursor:pointer;background:rgba(255,255,255,.08)}.mobile-menu summary::-webkit-details-marker{display:none}.mobile-panel{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;padding-top:6px}.mobile-panel>*{width:100%;max-width:600px}.two{grid-template-columns:1fr}}
 @media(min-width:981px){.mobile-menu{display:none}.desktop-nav{width:100%}}
 '''
 
@@ -380,6 +379,7 @@ def render_page(title, content):
         nav = f"""
         <div class='nav-group'>
             <div class='nav-left'>
+                <img class='nav-logo mctc' src='{logo_url()}' alt='MCTC Silang-Amadeo logo'>
                 <a href='{url_for('staff_dashboard')}'>{tr('dashboard')}</a>
                 <a href='{url_for('staff_cases')}'>{tr('cases')}</a>
                 <a href='{url_for('staff_calendar')}'>{tr('calendar')}</a>
@@ -391,8 +391,8 @@ def render_page(title, content):
             <div class='nav-right'>
                 <a href='{url_for('change_language', value=next_lang)}'>{tr('language')}: {lang_label}</a>
                 <a href='{url_for('change_theme', value=next_theme)}'>{theme_label}</a>
-                <img class='nav-logo supreme' src='{supreme_logo_url()}' alt='Supreme Court of the Philippines logo'>
                 <form method='post' action='{url_for('logout')}' class='nav-form'><button type='submit'>{tr('logout')}</button></form>
+                <img class='nav-logo supreme' src='{supreme_logo_url()}' alt='Supreme Court of the Philippines logo'>
             </div>
         </div>
         """
@@ -400,6 +400,7 @@ def render_page(title, content):
         nav = f"""
         <div class='nav-group'>
             <div class='nav-left'>
+                <img class='nav-logo mctc' src='{logo_url()}' alt='MCTC Silang-Amadeo logo'>
                 <a href='{url_for('home')}'>{tr('home')}</a>
                 <a href='{url_for('about')}'>{tr('about')}</a>
                 <a href='{url_for('search_cases')}'>{tr('search')}</a>
@@ -409,14 +410,11 @@ def render_page(title, content):
                 <a href='{url_for('contact')}'>{tr('contact')}</a>
                 <a href='{url_for('change_language', value=next_lang)}'>{tr('language')}: {lang_label}</a>
                 <a href='{url_for('change_theme', value=next_theme)}'>{theme_label}</a>
-            </div>
-            <div class='nav-right'>
-                <img class='nav-logo supreme' src='{supreme_logo_url()}' alt='Supreme Court of the Philippines logo'>
                 <a href='{url_for('staff_login')}'>{tr('staff_login')}</a>
+                <img class='nav-logo supreme' src='{supreme_logo_url()}' alt='Supreme Court of the Philippines logo'>
             </div>
         </div>
         """
-
     mobile = nav.replace("<div class='nav-group'>", "", 1).replace("</div>", "", 1)
     return f"""<!doctype html><html lang='{esc(language())}'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'><meta name='description' content='MCTC Silang-Amadeo Court Information Portal'><title>{esc(title)} - {esc(COURT_NAME)}</title><style>{STYLE}</style></head><body class='{esc(theme)}'>
 <header class='site-header'><div class='header-inner'><div class='header-top'><img class='header-brand-logo' src='{logo_url()}' alt='MCTC Silang-Amadeo official logo'><div class='header-brand-text'><div class='header-brand-name'>{esc(COURT_NAME)}</div><div class='header-brand-subtitle'>Official Court Information Portal</div></div></div><div class='center-nav'><nav class='nav'><div class='desktop-nav'>{nav}</div><details class='mobile-menu'><summary>☰ &nbsp; Menu</summary><div class='mobile-panel'>{mobile}</div></details></nav></div></div></header><main class='container'>{flashes()}{content}</main><footer><strong>{esc(COURT_NAME)}</strong><p>{esc(COURT_ADDRESS)}</p><p><a href='tel:{esc(COURT_PHONE)}'>{esc(COURT_PHONE)}</a><br><a href='mailto:{esc(COURT_EMAIL)}'>{esc(COURT_EMAIL)}</a></p><p><a href='{MAP_URL}' target='_blank' rel='noopener noreferrer'>🗺️ {tr('open_maps')}</a></p><p>{tr('copyright')}</p></footer></body></html>"""
