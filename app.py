@@ -589,15 +589,18 @@ a:hover { text-decoration: underline; }
 }
 
 .header-nav {
+    width: 100%;
+    min-height: 90px;
+    padding: 8px 18px 14px;
     display: flex;
     align-items: center;
     justify-content: center;
+    align-content: center;
     gap: 6px;
     flex-wrap: wrap;
-    width: 100%;
-    padding: 5px 12px 12px;
+    margin: 0 auto;
+    box-sizing: border-box;
 }
-
 .header-nav a,
 .header-nav button,
 .header-nav .nav-form {
@@ -627,8 +630,8 @@ a:hover { text-decoration: underline; }
 }
 
 .nav-logo {
-    width: 72px;
-    height: 72px;
+    width: 92px;
+    height: 92px;
     padding: 3px;
     object-fit: contain;
     background: white;
@@ -644,6 +647,22 @@ a:hover { text-decoration: underline; }
 }
 
 .center { text-align: center; }
+
+.staff-interface .card h1,
+.staff-interface .card h2,
+.staff-interface .card h3,
+.staff-interface .hero,
+.staff-interface .stat {
+    text-align: center;
+}
+
+.staff-interface .actions {
+    justify-content: center;
+}
+
+.staff-interface .grid {
+    align-items: stretch;
+}
 
 .hero {
     margin: 12px 0 24px;
@@ -820,13 +839,48 @@ footer {
 }
 footer p { margin: 8px 0; }
 
+.staff-interface .header-nav {
+    justify-content: center;
+    text-align: center;
+}
+
+.staff-interface .header-nav .nav-form {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0;
+}
+
+.staff-interface .header-nav .nav-form button {
+    margin: 0;
+}
+
+@media (max-width: 1100px) {
+    .header-nav {
+        gap: 4px;
+        padding-left: 10px;
+        padding-right: 10px;
+    }
+
+    .header-nav a,
+    .header-nav button {
+        font-size: 11px;
+        padding: 7px 8px;
+    }
+
+    .nav-logo {
+        width: 78px;
+        height: 78px;
+    }
+}
+
 @media (max-width: 850px) {
     .header-title { font-size: 18px; }
     .header-subtitle { font-size: 12px; }
     .header-nav { gap: 3px; }
     .header-nav a,
     .header-nav button { font-size: 11px; padding: 8px; }
-    .nav-logo { width: 58px; height: 58px; }
+    .nav-logo { width: 68px; height: 68px; }
 }
 
 @media (max-width: 600px) {
@@ -852,16 +906,35 @@ def render_page(title, body, staff_page=False):
     nav = []
 
     if staff_page or session.get("staff_logged_in", False):
-        # Staff interface: only staff controls, no civilian public nav.
-        nav.append(f"<a href='{url_for('staff_dashboard')}'>{tr('staff_dashboard')}</a>")
-        nav.append(f"<a href='{url_for('staff_cases')}'>{tr('cases')}</a>")
-        nav.append(f"<a href='{url_for('staff_calendar')}'>{tr('calendar')}</a>")
-        nav.append(f"<a href='{url_for('staff_requirements')}'>{tr('requirements')}</a>")
-        nav.append(f"<a href='{url_for('staff_notices')}'>{tr('notices')}</a>")
-        nav.append(f"<a href='{url_for('staff_laws')}'>{tr('laws')}</a>")
+        # Staff-only navigation.
+        # Keep the staff area separate from the civilian navigation.
+        nav.append(
+            f"<img class='nav-logo' src='{url_for('static', filename=MCTC_LOGO)}' "
+            f"alt='MCTC Silang-Amadeo logo'>"
+        )
+        nav.append(
+            f"<a href='{url_for('staff_dashboard')}'>{tr('staff_dashboard')}</a>"
+        )
+        nav.append(
+            f"<a href='{url_for('staff_cases')}'>{tr('cases')}</a>"
+        )
+        nav.append(
+            f"<a href='{url_for('staff_calendar')}'>{tr('calendar')}</a>"
+        )
+        nav.append(
+            f"<a href='{url_for('staff_requirements')}'>{tr('requirements')}</a>"
+        )
+        nav.append(
+            f"<a href='{url_for('staff_notices')}'>{tr('notices')}</a>"
+        )
+        nav.append(
+            f"<a href='{url_for('staff_laws')}'>{tr('laws')}</a>"
+        )
 
         if session.get("staff_role") == "admin":
-            nav.append(f"<a href='{url_for('staff_accounts')}'>{tr('staff_accounts')}</a>")
+            nav.append(
+                f"<a href='{url_for('staff_accounts')}'>{tr('staff_accounts')}</a>"
+            )
 
         nav.append(
             f"<a href='{url_for('change_language', language=other_language)}'>{language_label}</a>"
@@ -896,7 +969,9 @@ def render_page(title, body, staff_page=False):
         nav.append(
             f"<a href='{url_for('change_theme', theme=other_theme)}'>{theme_label}</a>"
         )
-        nav.append(f"<a href='{url_for('staff_login')}'>{tr('staff_login')}</a>")
+        nav.append(
+            f"<a href='{url_for('staff_login')}'>{tr('staff_login')}</a>"
+        )
         nav.append(
             f"<img class='nav-logo' src='{url_for('static', filename=SUPREME_LOGO)}' "
             f"alt='Supreme Court of the Philippines seal'>"
@@ -924,7 +999,7 @@ def render_page(title, body, staff_page=False):
             <title>{{ title }} - {{ court_name }}</title>
             <style>{{ style|safe }}</style>
         </head>
-        <body class="{{ theme }}">
+        <body class="{{ theme }}{% if staff_page %} staff-interface{% endif %}">
             <header class="site-header">
                 <div class="header-top">
                     <div class="header-title-wrap">
@@ -970,6 +1045,7 @@ def render_page(title, body, staff_page=False):
         navigation="".join(nav),
         flashes=flashes,
         staff_identity=staff_identity,
+        staff_page=staff_page,
         body=body,
     )
 
