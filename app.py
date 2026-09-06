@@ -1109,6 +1109,11 @@ def home():
             <a class="button" href="{url_for('search_cases')}">{tr('search')}</a>
         </div>
         <div class="card centered">
+            <h2>📅 {tr('calendar')}</h2>
+            <p>View the Tuesday court schedule uploaded by authorized court staff.</p>
+            <a class="button" href="{url_for('public_calendar')}">View Tuesday Calendar</a>
+        </div>
+        <div class="card centered">
             <h2>📄 {tr('requirements')}</h2>
             <p>View the publicly available posting bail bond and clearance information.</p>
             <a class="button" href="{url_for('requirements')}">{tr('view')}</a>
@@ -7274,4 +7279,3 @@ if __name__ == "__main__":
 # Legacy Pending values are migrated to Active during database startup.
 # Courtroom is intentionally excluded from the hearing interface.
 # Plaintiff last name/corporation name is a required search field.
-
