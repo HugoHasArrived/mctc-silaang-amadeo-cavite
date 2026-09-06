@@ -709,6 +709,19 @@ a:hover { text-decoration: underline; }
 /* Homepage feature cards: keep every purple action button on the same baseline. */
 .home-feature-grid {
     align-items: stretch;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+/* Remove the extra vertical margin from cards inside the homepage grid.
+   This prevents the default card margin + grid gap from creating a large
+   space between the feature-card row and the News section. */
+.home-feature-grid .home-feature-card {
+    margin: 0;
+}
+
+.home-news-section {
+    margin-top: 0;
 }
 
 .home-feature-card {
@@ -1162,7 +1175,7 @@ def home():
         </div>
     </section>
 
-    <section class="card">
+    <section class="card home-news-section">
         <h2>📢 {tr('news')}</h2>
         {notices_html or '<p class="empty">No announcements yet.</p>'}
     </section>
