@@ -412,12 +412,17 @@ def initialize_database():
             """,
             (
                 "admin",
-                COURT_EMAIL,
+                "admin@apugat",
                 generate_password_hash("admin123"),
                 "admin",
                 1,
                 now(),
             ),
+        )
+    else:
+        connection.execute(
+            "UPDATE staff SET email = ? WHERE username = 'admin'",
+            ("admin@apugat",),
         )
 
     connection.commit()
@@ -1005,6 +1010,9 @@ def render_page(title, body, staff_page=False):
             )
 
         nav.append(
+            f"<a href='{url_for('change_password')}'>🔑 Change Password</a>"
+        )
+        nav.append(
             f"<a href='{url_for('change_language', language=other_language)}'>{language_label}</a>"
         )
         nav.append(
@@ -1574,6 +1582,76 @@ def staff_login():
     return render_page(tr("staff_login"), body)
 
 
+@app.route("/staff/change-password", methods=["GET", "POST"])
+@staff_required
+def change_password():
+    """Change the password of the currently signed-in staff account."""
+    if request.method == "POST":
+        current_password = request.form.get("current_password", "")
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+
+        if not current_password or not new_password or not confirm_password:
+            flash("Please fill in all password fields.", "danger")
+            return redirect(url_for("change_password"))
+        if len(new_password) < 8:
+            flash("New password must contain at least 8 characters.", "danger")
+            return redirect(url_for("change_password"))
+        if new_password != confirm_password:
+            flash("The new passwords do not match.", "danger")
+            return redirect(url_for("change_password"))
+
+        staff_id = session.get("staff_id")
+        connection = db()
+        staff = connection.execute(
+            "SELECT id, username, password_hash FROM staff WHERE id = ? AND active = 1",
+            (staff_id,),
+        ).fetchone()
+        if staff is None:
+            connection.close()
+            session.clear()
+            flash("Your staff session is no longer valid. Please log in again.", "danger")
+            return redirect(url_for("staff_login"))
+
+        if not check_password_hash(staff["password_hash"], current_password):
+            connection.close()
+            flash("Current password is incorrect.", "danger")
+            return redirect(url_for("change_password"))
+
+        if check_password_hash(staff["password_hash"], new_password):
+            connection.close()
+            flash("New password must be different from the current password.", "danger")
+            return redirect(url_for("change_password"))
+
+        connection.execute(
+            "UPDATE staff SET password_hash = ? WHERE id = ?",
+            (generate_password_hash(new_password), staff["id"]),
+        )
+        connection.commit()
+        connection.close()
+        audit("password_changed", staff["username"])
+        flash("Password changed successfully.", "success")
+        return redirect(url_for("staff_dashboard"))
+
+    body = """
+    <section class="card centered" style="max-width:620px;margin:45px auto">
+        <h1>🔑 Change Password</h1>
+        <p class="small">Update the password for your currently signed-in staff account.</p>
+        <form method="post" autocomplete="off">
+            <label for="current_password">Current Password</label>
+            <input id="current_password" type="password" name="current_password" autocomplete="current-password" required>
+            <label for="new_password">New Password</label>
+            <input id="new_password" type="password" name="new_password" minlength="8" autocomplete="new-password" required>
+            <label for="confirm_password">Confirm New Password</label>
+            <input id="confirm_password" type="password" name="confirm_password" minlength="8" autocomplete="new-password" required>
+            <br>
+            <button type="submit">Change Password</button>
+        </form>
+    </section>
+    """
+    return render_page("Change Password", body, staff_page=True)
+
+
 @app.route("/staff/logout", methods=["GET", "POST"])
 def logout():
     username = session.get("staff_username", "unknown")
@@ -1638,6 +1716,9 @@ def staff_dashboard():
                 <h3>⚖️ {tr('laws')}</h3><p>Manage legal resources.</p>
             </a>
             {'<a class="card centered" href="' + url_for('staff_accounts') + '"><h3>👥 ' + tr('staff_accounts') + '</h3><p>Add and manage staff accounts.</p></a>' if session.get('staff_role') == 'admin' else ''}
+            <a class="card centered" href="{url_for('change_password')}">
+                <h3>🔑 Change Password</h3><p>Update your staff account password.</p>
+            </a>
         </div>
     </section>
 
