@@ -428,7 +428,7 @@ def initialize_database():
             """,
             (
                 "Admin",
-                "josher.tan@gmail.com",
+                "josehr.tan@gmail.com",
                 generate_password_hash("ChangeMe123!"),
                 "admin",
                 1,
@@ -438,7 +438,7 @@ def initialize_database():
     else:
         connection.execute(
             "UPDATE staff SET username = ?, email = ?, role = ?, active = 1 WHERE id = ?",
-            ("Admin", "josher.tan@gmail.com", "admin", admin["id"]),
+            ("Admin", "josehr.tan@gmail.com", "admin", admin["id"]),
         )
 
     connection.commit()
