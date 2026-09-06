@@ -281,6 +281,16 @@ def initialize_database():
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS password_reset_tokens (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER NOT NULL,
+            token_hash TEXT UNIQUE NOT NULL,
+            expires_at TEXT NOT NULL,
+            used_at TEXT,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY(staff_id) REFERENCES staff(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE IF NOT EXISTS cases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             case_number TEXT UNIQUE NOT NULL,
@@ -403,9 +413,10 @@ def initialize_database():
                 ),
             )
 
-    # Primary administrator requested by the project owner.
+    # Primary administrator. Existing installations are migrated to the
+    # requested username, email address, and initial password.
     admin = connection.execute(
-        "SELECT id FROM staff WHERE username = 'admin'"
+        "SELECT * FROM staff WHERE lower(username) = 'admin' LIMIT 1"
     ).fetchone()
 
     if admin is None:
@@ -416,9 +427,9 @@ def initialize_database():
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                "admin",
-                "admin@apugat",
-                generate_password_hash("admin123"),
+                "Admin",
+                "josher.tan@gmail.com",
+                generate_password_hash("ChangeMe123!"),
                 "admin",
                 1,
                 now(),
@@ -426,8 +437,8 @@ def initialize_database():
         )
     else:
         connection.execute(
-            "UPDATE staff SET email = ? WHERE username = 'admin'",
-            ("admin@apugat",),
+            "UPDATE staff SET username = ?, email = ?, role = ?, active = 1 WHERE id = ?",
+            ("Admin", "josher.tan@gmail.com", "admin", admin["id"]),
         )
 
     connection.commit()
@@ -1536,6 +1547,51 @@ def uploaded_file(filename):
 # STAFF LOGIN / LOGOUT
 # ================================================================
 
+def send_password_reset_email(recipient_email, recipient_username, reset_url):
+    """Send a one-time password reset link using SMTP environment settings."""
+    smtp_host = os.getenv("SMTP_HOST", "").strip()
+    smtp_port = int(os.getenv("SMTP_PORT", "587"))
+    smtp_username = os.getenv("SMTP_USERNAME", "").strip()
+    smtp_password = os.getenv("SMTP_PASSWORD", "")
+    mail_from = os.getenv("MAIL_FROM", smtp_username).strip()
+    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() not in {"0", "false", "no"}
+
+    if not smtp_host or not smtp_username or not smtp_password or not mail_from:
+        raise RuntimeError(
+            "Email service is not configured. Set SMTP_HOST, SMTP_PORT, "
+            "SMTP_USERNAME, SMTP_PASSWORD, and MAIL_FROM."
+        )
+
+    message = EmailMessage()
+    message["Subject"] = "MCTC Staff Password Reset"
+    message["From"] = mail_from
+    message["To"] = recipient_email
+    message.set_content(
+        f"""Hello {recipient_username},
+
+We received a request to reset your MCTC staff portal password.
+
+Use this one-time link to create a new password:
+{reset_url}
+
+This link expires in 30 minutes and can only be used once.
+If you did not request this, you can safely ignore this email.
+
+Municipal Circuit Trial Court of Silang-Amadeo, Cavite
+"""
+    )
+
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
+        if use_tls:
+            server.starttls()
+        server.login(smtp_username, smtp_password)
+        server.send_message(message)
+
+
+def password_reset_hash(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 @app.route("/staff/login", methods=["GET", "POST"])
 def staff_login():
     if session.get("staff_logged_in"):
@@ -1582,9 +1638,152 @@ def staff_login():
             <br>
             <button type="submit">{tr('login') if 'login' in T[lang_value()] else 'Log In'}</button>
         </form>
+        <p style="margin-top:18px"><a href="{url_for('forgot_password')}">Forgot Password?</a></p>
     </section>
     """
     return render_page(tr("staff_login"), body)
+
+
+@app.route("/staff/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    generic_message = "If the account exists, a password reset link has been sent to its email address."
+    if request.method == "POST":
+        account = request.form.get("account", "").strip()
+        connection = db()
+        staff = connection.execute(
+            "SELECT id, username, email FROM staff WHERE active = 1 AND (lower(username) = lower(?) OR lower(email) = lower(?)) LIMIT 1",
+            (account, account),
+        ).fetchone()
+
+        if staff:
+            # Invalidate earlier unused reset links for this account.
+            connection.execute(
+                "UPDATE password_reset_tokens SET used_at = ? WHERE staff_id = ? AND used_at IS NULL",
+                (now(), staff["id"]),
+            )
+            token = secrets.token_urlsafe(48)
+            token_hash = password_reset_hash(token)
+            expires_at = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+            connection.execute(
+                "INSERT INTO password_reset_tokens (staff_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)",
+                (staff["id"], token_hash, expires_at, now()),
+            )
+            connection.commit()
+            reset_base = os.getenv("PUBLIC_BASE_URL", request.host_url).rstrip("/")
+            reset_url = f"{reset_base}{url_for('reset_password', token=token)}"
+            connection.close()
+            try:
+                send_password_reset_email(staff["email"], staff["username"], reset_url)
+            except Exception:
+                # Do not expose SMTP credentials/configuration to the user.
+                audit("password_reset_email_failed", staff["username"])
+                flash("The password reset email could not be sent. Please contact the court administrator.", "danger")
+                return redirect(url_for("staff_login"))
+            audit("password_reset_requested", staff["username"])
+        else:
+            connection.close()
+
+        flash(generic_message, "success")
+        return redirect(url_for("staff_login"))
+
+    body = """
+    <section class="card centered" style="max-width:620px;margin:45px auto">
+        <h1>🔐 Forgot Password</h1>
+        <p class="small">Enter your staff username or account email. If the account exists, we will email a secure reset link.</p>
+        <form method="post" autocomplete="off">
+            <label for="account">Username or Email</label>
+            <input id="account" name="account" autocomplete="username email" required>
+            <br>
+            <button type="submit">Send Reset Link</button>
+        </form>
+        <p style="margin-top:18px"><a href="{login_url}">Back to Staff Login</a></p>
+    </section>
+    """.format(login_url=url_for("staff_login"))
+    return render_page("Forgot Password", body)
+
+
+@app.route("/staff/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    token_hash = password_reset_hash(token)
+    connection = db()
+    record = connection.execute(
+        """
+        SELECT pr.id, pr.staff_id, pr.expires_at, pr.used_at, s.username
+        FROM password_reset_tokens pr
+        JOIN staff s ON s.id = pr.staff_id
+        WHERE pr.token_hash = ? AND s.active = 1
+        LIMIT 1
+        """,
+        (token_hash,),
+    ).fetchone()
+
+    valid = False
+    if record and not record["used_at"]:
+        try:
+            expires = datetime.fromisoformat(record["expires_at"])
+            if expires > datetime.now(timezone.utc):
+                valid = True
+        except ValueError:
+            valid = False
+
+    if not valid:
+        connection.close()
+        body = """
+        <section class="card centered" style="max-width:620px;margin:45px auto">
+            <h1>Reset Link Expired</h1>
+            <p>This password reset link is invalid, expired, or has already been used.</p>
+            <a class="button" href="{url}">Request a New Link</a>
+        </section>
+        """.format(url=url_for("forgot_password"))
+        return render_page("Reset Password", body), 400
+
+    if request.method == "POST":
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        if len(new_password) < 8:
+            connection.close()
+            flash("New password must contain at least 8 characters.", "danger")
+            return redirect(url_for("reset_password", token=token))
+        if new_password != confirm_password:
+            connection.close()
+            flash("The new passwords do not match.", "danger")
+            return redirect(url_for("reset_password", token=token))
+
+        connection.execute(
+            "UPDATE staff SET password_hash = ? WHERE id = ?",
+            (generate_password_hash(new_password), record["staff_id"]),
+        )
+        connection.execute(
+            "UPDATE password_reset_tokens SET used_at = ? WHERE id = ?",
+            (now(), record["id"]),
+        )
+        # Invalidate every other outstanding reset token for this account.
+        connection.execute(
+            "UPDATE password_reset_tokens SET used_at = ? WHERE staff_id = ? AND used_at IS NULL",
+            (now(), record["staff_id"]),
+        )
+        connection.commit()
+        connection.close()
+        audit("password_reset_completed", record["username"])
+        flash("Your password has been reset successfully. Please log in with your new password.", "success")
+        return redirect(url_for("staff_login"))
+
+    connection.close()
+    body = """
+    <section class="card centered" style="max-width:620px;margin:45px auto">
+        <h1>🔑 Reset Password</h1>
+        <p class="small">Choose a new password for your staff account.</p>
+        <form method="post" autocomplete="off">
+            <label for="new_password">New Password</label>
+            <input id="new_password" type="password" name="new_password" minlength="8" autocomplete="new-password" required>
+            <label for="confirm_password">Confirm New Password</label>
+            <input id="confirm_password" type="password" name="confirm_password" minlength="8" autocomplete="new-password" required>
+            <br>
+            <button type="submit">Reset Password</button>
+        </form>
+    </section>
+    """
+    return render_page("Reset Password", body)
 
 
 @app.route("/staff/change-password", methods=["GET", "POST"])
