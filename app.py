@@ -30,9 +30,17 @@ from werkzeug.utils import secure_filename
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Render Persistent Disk support:
-# - On Render, set DATA_DIR=/var/data and mount a persistent disk there.
-# - Locally, data stays inside the project directory.
+# PERSISTENT DATA STORAGE
+#
+# The database and every uploaded file are stored together under DATA_DIR.
+# On Render, DATA_DIR MUST point to the mounted Persistent Disk (normally
+# /var/data). This makes cases, hearings, notices, laws, requirements,
+# staff accounts, and the Tuesday schedule survive redeploys and restarts.
+# A new phone/computer will see the same server-side data automatically.
+#
+# IMPORTANT: a normal Render service filesystem is ephemeral. The app will
+# therefore refuse to run on Render when /var/data is not writable instead
+# of silently falling back to a temporary folder and losing data later.
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
 
 try:
@@ -41,7 +49,14 @@ try:
 except OSError:
     _data_dir_ok = False
 
+if os.environ.get("RENDER") and not _data_dir_ok:
+    raise RuntimeError(
+        "Persistent storage is not mounted. On Render, mount a Persistent "
+        "Disk at /var/data and set DATA_DIR=/var/data before starting the app."
+    )
+
 if not _data_dir_ok:
+    # Safe local-development fallback only. Never used on Render.
     DATA_DIR = BASE_DIR / "data"
     DATA_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -235,6 +250,9 @@ def current_theme():
 # ================================================================
 # DATABASE
 # ================================================================
+# SQLite is intentionally stored on DATA_DIR, alongside uploads, so both
+# structured records and uploaded documents/photos use the same persistent
+# storage location.
 
 def db():
     connection = sqlite3.connect(DB_PATH, timeout=30)
