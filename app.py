@@ -49,16 +49,21 @@ try:
 except OSError:
     _data_dir_ok = False
 
-if os.environ.get("RENDER") and not _data_dir_ok:
-    raise RuntimeError(
-        "Persistent storage is not mounted. On Render, mount a Persistent "
-        "Disk at /var/data and set DATA_DIR=/var/data before starting the app."
-    )
+# Never crash the web service just because a Render Persistent Disk has not
+# been attached yet. When /var/data is available, it is used for durable
+# storage. Otherwise the app falls back to the service directory so the site
+# can still boot. Note: the fallback is ephemeral on Render; attach a
+# Persistent Disk and set DATA_DIR=/var/data to make data survive deploys.
+if not _data_dir_ok:
+    DATA_DIR = Path(os.environ.get("FALLBACK_DATA_DIR", BASE_DIR / "data"))
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _data_dir_ok = os.access(DATA_DIR, os.W_OK)
 
 if not _data_dir_ok:
-    # Safe local-development fallback only. Never used on Render.
-    DATA_DIR = BASE_DIR / "data"
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    raise RuntimeError(
+        "Application data directory is not writable. Set DATA_DIR to a writable "
+        "directory (on Render, /var/data is recommended)."
+    )
 
 DB_PATH = DATA_DIR / "mctc_court.db"
 UPLOAD_DIR = DATA_DIR / "uploads"
@@ -2830,8 +2835,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -2866,8 +2871,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -2902,8 +2907,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -2938,8 +2943,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -2974,8 +2979,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3010,8 +3015,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3046,8 +3051,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3082,8 +3087,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3118,8 +3123,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3154,8 +3159,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3190,8 +3195,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3226,8 +3231,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3262,8 +3267,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3298,8 +3303,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3334,8 +3339,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3370,8 +3375,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3406,8 +3411,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3442,8 +3447,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3478,8 +3483,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3514,8 +3519,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3550,8 +3555,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3586,8 +3591,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3622,8 +3627,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3658,8 +3663,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3694,8 +3699,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3730,8 +3735,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3766,8 +3771,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3802,8 +3807,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3838,8 +3843,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3874,8 +3879,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3910,8 +3915,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3946,8 +3951,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -3982,8 +3987,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4018,8 +4023,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4054,8 +4059,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4090,8 +4095,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4126,8 +4131,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4162,8 +4167,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4198,8 +4203,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4234,8 +4239,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4270,8 +4275,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4306,8 +4311,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4342,8 +4347,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4378,8 +4383,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4414,8 +4419,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4450,8 +4455,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4486,8 +4491,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4522,8 +4527,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4558,8 +4563,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4594,8 +4599,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4630,8 +4635,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4666,8 +4671,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4702,8 +4707,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4738,8 +4743,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4774,8 +4779,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4810,8 +4815,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4846,8 +4851,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4882,8 +4887,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4918,8 +4923,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4954,8 +4959,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -4990,8 +4995,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5026,8 +5031,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5062,8 +5067,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5098,8 +5103,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5134,8 +5139,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5170,8 +5175,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5206,8 +5211,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5242,8 +5247,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5278,8 +5283,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5314,8 +5319,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5350,8 +5355,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5386,8 +5391,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5422,8 +5427,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5458,8 +5463,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5494,8 +5499,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5530,8 +5535,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5566,8 +5571,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5602,8 +5607,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5638,8 +5643,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5674,8 +5679,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5710,8 +5715,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5746,8 +5751,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5782,8 +5787,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5818,8 +5823,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5854,8 +5859,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5890,8 +5895,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5926,8 +5931,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5962,8 +5967,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -5998,8 +6003,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6034,8 +6039,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6070,8 +6075,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6106,8 +6111,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6142,8 +6147,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6178,8 +6183,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6214,8 +6219,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6250,8 +6255,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6286,8 +6291,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6322,8 +6327,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6358,8 +6363,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6394,8 +6399,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6430,8 +6435,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6466,8 +6471,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6502,8 +6507,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6538,8 +6543,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6574,8 +6579,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6610,8 +6615,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6646,8 +6651,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6682,8 +6687,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6718,8 +6723,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6754,8 +6759,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6790,8 +6795,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6826,8 +6831,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6862,8 +6867,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6898,8 +6903,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6934,8 +6939,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -6970,8 +6975,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7006,8 +7011,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7042,8 +7047,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7078,8 +7083,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7114,8 +7119,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7150,8 +7155,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7186,8 +7191,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7222,8 +7227,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7258,8 +7263,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7294,8 +7299,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7330,8 +7335,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7366,8 +7371,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
@@ -7402,8 +7407,8 @@ if __name__ == "__main__":
 # Clearance remains Not yet uploaded until an official checklist is supplied.
 #
 # Saved cases use SQLite.
-# For Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
-# Without a persistent disk, local filesystem data can disappear after redeploys.
+# For durable Render persistence, configure DATA_DIR=/var/data and mount a disk at /var/data.
+# Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
 # The initial development administrator is admin / admin123.
