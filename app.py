@@ -706,6 +706,43 @@ a:hover { text-decoration: underline; }
 
 .card.centered { text-align: center; }
 
+/* Homepage feature cards: keep every purple action button on the same baseline. */
+.home-feature-grid {
+    align-items: stretch;
+}
+
+.home-feature-card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    height: 100%;
+    box-sizing: border-box;
+}
+
+.home-feature-card h2 {
+    min-height: 76px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 0 12px;
+    line-height: 1.35;
+}
+
+.home-feature-card p {
+    min-height: 84px;
+    width: 100%;
+    margin: 0 0 18px;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+}
+
+.home-feature-card .button {
+    margin-top: auto;
+}
+
 .actions {
     display: flex;
     flex-wrap: wrap;
@@ -1102,23 +1139,23 @@ def home():
         </div>
     </section>
 
-    <section class="grid">
-        <div class="card centered">
+    <section class="grid home-feature-grid">
+        <div class="card centered home-feature-card">
             <h2>🔎 {tr('search')}</h2>
             <p>{tr('required_search')}</p>
             <a class="button" href="{url_for('search_cases')}">{tr('search')}</a>
         </div>
-        <div class="card centered">
+        <div class="card centered home-feature-card">
             <h2>📅 {tr('calendar')}</h2>
             <p>View the Tuesday court schedule uploaded by authorized court staff.</p>
             <a class="button" href="{url_for('public_calendar')}">View Tuesday Calendar</a>
         </div>
-        <div class="card centered">
+        <div class="card centered home-feature-card">
             <h2>📄 {tr('requirements')}</h2>
             <p>View the publicly available posting bail bond and clearance information.</p>
             <a class="button" href="{url_for('requirements')}">{tr('view')}</a>
         </div>
-        <div class="card centered">
+        <div class="card centered home-feature-card">
             <h2>📢 {tr('news')}</h2>
             <p>Read public notices and announcements from authorized staff.</p>
             <a class="button" href="{url_for('news')}">{tr('view')}</a>
