@@ -1564,22 +1564,50 @@ def uploaded_file(filename):
 # ================================================================
 
 def send_password_reset_email(recipient_email, recipient_username, reset_url):
-    """Send a one-time password reset link using SMTP environment settings."""
-    smtp_host = os.getenv("SMTP_HOST", "").strip()
-    smtp_port = int(os.getenv("SMTP_PORT", "587"))
-    smtp_username = os.getenv("SMTP_USERNAME", "").strip()
-    smtp_password = os.getenv("SMTP_PASSWORD", "")
-    mail_from = os.getenv("MAIL_FROM", smtp_username).strip()
+    """Send a one-time password reset link through Gmail SMTP.
+
+    Gmail is the default provider so the application can send reset emails
+    with only GMAIL_USERNAME and GMAIL_APP_PASSWORD configured in Render.
+    Generic SMTP_* variables are also supported for other providers.
+    """
+    # Gmail-first configuration. Generic SMTP_* variables can override it.
+    smtp_host = (
+        os.getenv("SMTP_HOST", "").strip()
+        or "smtp.gmail.com"
+    )
+
+    raw_port = os.getenv("SMTP_PORT", "587").strip()
+    try:
+        smtp_port = int(raw_port)
+    except ValueError:
+        raise RuntimeError("SMTP_PORT must be a valid number, such as 587.")
+
+    smtp_username = (
+        os.getenv("SMTP_USERNAME", "").strip()
+        or os.getenv("GMAIL_USERNAME", "").strip()
+        or "josehr.tan@gmail.com"
+    )
+    smtp_password = (
+        os.getenv("SMTP_PASSWORD", "")
+        or os.getenv("GMAIL_APP_PASSWORD", "")
+    )
+    mail_from = (
+        os.getenv("MAIL_FROM", "").strip()
+        or smtp_username
+    )
+
+    # Port 465 uses implicit SSL; port 587 uses STARTTLS by default.
+    use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() not in {"0", "false", "no"}
     use_tls = os.getenv("SMTP_USE_TLS", "true").lower() not in {"0", "false", "no"}
 
-    if not smtp_host or not smtp_username or not smtp_password or not mail_from:
+    if not smtp_username or not smtp_password or not mail_from:
         raise RuntimeError(
-            "Email service is not configured. Set SMTP_HOST, SMTP_PORT, "
-            "SMTP_USERNAME, SMTP_PASSWORD, and MAIL_FROM."
+            "Gmail email is not configured. Set GMAIL_USERNAME and "
+            "GMAIL_APP_PASSWORD in Render (or SMTP_USERNAME and SMTP_PASSWORD)."
         )
 
     message = EmailMessage()
-    message["Subject"] = "MCTC Staff Password Reset"
+    message["Subject"] = "MCTC Staff Portal - Password Reset"
     message["From"] = mail_from
     message["To"] = recipient_email
     message.set_content(
@@ -1587,21 +1615,29 @@ def send_password_reset_email(recipient_email, recipient_username, reset_url):
 
 We received a request to reset your MCTC staff portal password.
 
-Use this one-time link to create a new password:
+Use this secure, one-time link to create a new password:
 {reset_url}
 
 This link expires in 30 minutes and can only be used once.
 If you did not request this, you can safely ignore this email.
 
 Municipal Circuit Trial Court of Silang-Amadeo, Cavite
+Official Court Information Portal
 """
     )
 
-    with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
-        if use_tls:
-            server.starttls()
-        server.login(smtp_username, smtp_password)
-        server.send_message(message)
+    if use_ssl or smtp_port == 465:
+        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30) as server:
+            server.login(smtp_username, smtp_password)
+            server.send_message(message)
+    else:
+        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
+            server.ehlo()
+            if use_tls:
+                server.starttls()
+                server.ehlo()
+            server.login(smtp_username, smtp_password)
+            server.send_message(message)
 
 
 def password_reset_hash(token):
@@ -3055,7 +3091,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3091,7 +3127,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3127,7 +3163,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3163,7 +3199,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3199,7 +3235,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3235,7 +3271,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3271,7 +3307,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3307,7 +3343,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3343,7 +3379,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3379,7 +3415,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3415,7 +3451,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3451,7 +3487,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3487,7 +3523,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3523,7 +3559,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3559,7 +3595,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3595,7 +3631,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3631,7 +3667,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3667,7 +3703,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3703,7 +3739,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3739,7 +3775,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3775,7 +3811,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3811,7 +3847,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3847,7 +3883,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3883,7 +3919,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3919,7 +3955,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3955,7 +3991,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -3991,7 +4027,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4027,7 +4063,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4063,7 +4099,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4099,7 +4135,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4135,7 +4171,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4171,7 +4207,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4207,7 +4243,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4243,7 +4279,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4279,7 +4315,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4315,7 +4351,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4351,7 +4387,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4387,7 +4423,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4423,7 +4459,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4459,7 +4495,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4495,7 +4531,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4531,7 +4567,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4567,7 +4603,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4603,7 +4639,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4639,7 +4675,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4675,7 +4711,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4711,7 +4747,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4747,7 +4783,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4783,7 +4819,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4819,7 +4855,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4855,7 +4891,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4891,7 +4927,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4927,7 +4963,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4963,7 +4999,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -4999,7 +5035,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5035,7 +5071,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5071,7 +5107,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5107,7 +5143,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5143,7 +5179,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5179,7 +5215,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5215,7 +5251,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5251,7 +5287,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5287,7 +5323,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5323,7 +5359,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5359,7 +5395,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5395,7 +5431,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5431,7 +5467,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5467,7 +5503,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5503,7 +5539,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5539,7 +5575,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5575,7 +5611,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5611,7 +5647,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5647,7 +5683,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5683,7 +5719,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5719,7 +5755,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5755,7 +5791,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5791,7 +5827,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5827,7 +5863,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5863,7 +5899,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5899,7 +5935,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5935,7 +5971,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -5971,7 +6007,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6007,7 +6043,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6043,7 +6079,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6079,7 +6115,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6115,7 +6151,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6151,7 +6187,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6187,7 +6223,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6223,7 +6259,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6259,7 +6295,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6295,7 +6331,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6331,7 +6367,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6367,7 +6403,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6403,7 +6439,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6439,7 +6475,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6475,7 +6511,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6511,7 +6547,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6547,7 +6583,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6583,7 +6619,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6619,7 +6655,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6655,7 +6691,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6691,7 +6727,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6727,7 +6763,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6763,7 +6799,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6799,7 +6835,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6835,7 +6871,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6871,7 +6907,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6907,7 +6943,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6943,7 +6979,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -6979,7 +7015,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7015,7 +7051,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7051,7 +7087,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7087,7 +7123,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7123,7 +7159,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7159,7 +7195,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7195,7 +7231,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7231,7 +7267,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7267,7 +7303,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7303,7 +7339,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7339,7 +7375,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7375,7 +7411,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7411,7 +7447,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7447,7 +7483,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7483,7 +7519,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7519,7 +7555,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7555,7 +7591,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7591,7 +7627,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
@@ -7627,7 +7663,7 @@ if __name__ == "__main__":
 # Without a persistent disk, the fallback local filesystem can disappear after redeploys.
 #
 # Staff passwords are stored as secure hashes.
-# The initial development administrator is admin / admin123.
+# Primary administrator: Admin / ChangeMe123!
 # Change the administrator password before real production use.
 # ================================================================
 # PROJECT IMPLEMENTATION NOTES
