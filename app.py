@@ -1564,47 +1564,44 @@ def uploaded_file(filename):
 # ================================================================
 
 def send_password_reset_email(recipient_email, recipient_username, reset_url):
-    """Send a one-time password reset link through Gmail SMTP.
+    """Send a one-time reset email through Gmail SMTP.
 
-    Gmail is the default provider so the application can send reset emails
-    with only GMAIL_USERNAME and GMAIL_APP_PASSWORD configured in Render.
-    Generic SMTP_* variables are also supported for other providers.
+    Gmail SMTP requires authentication. The supported setup is: 
+      GMAIL_USERNAME=josehr.tan@gmail.com
+      GMAIL_APP_PASSWORD=<Google 16-character app password>
+
+    SMTP_* variables remain supported for other providers.
     """
-    # Gmail-first configuration. Generic SMTP_* variables can override it.
-    smtp_host = (
-        os.getenv("SMTP_HOST", "").strip()
-        or "smtp.gmail.com"
-    )
+    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
 
-    raw_port = os.getenv("SMTP_PORT", "587").strip()
+    raw_port = os.getenv("SMTP_PORT", "465").strip() or "465"
     try:
         smtp_port = int(raw_port)
-    except ValueError:
-        raise RuntimeError("SMTP_PORT must be a valid number, such as 587.")
+    except ValueError as exc:
+        raise RuntimeError("SMTP_PORT must be 465 or 587.") from exc
 
     smtp_username = (
-        os.getenv("SMTP_USERNAME", "").strip()
-        or os.getenv("GMAIL_USERNAME", "").strip()
+        os.getenv("GMAIL_USERNAME", "").strip()
+        or os.getenv("SMTP_USERNAME", "").strip()
         or "josehr.tan@gmail.com"
     )
+
     smtp_password = (
-        os.getenv("SMTP_PASSWORD", "")
-        or os.getenv("GMAIL_APP_PASSWORD", "")
-    )
-    mail_from = (
-        os.getenv("MAIL_FROM", "").strip()
-        or smtp_username
-    )
+        os.getenv("GMAIL_APP_PASSWORD", "")
+        or os.getenv("SMTP_PASSWORD", "")
+    ).strip().replace(" ", "")
 
-    # Port 465 uses implicit SSL; port 587 uses STARTTLS by default.
-    use_ssl = os.getenv("SMTP_USE_SSL", "false").lower() not in {"0", "false", "no"}
-    use_tls = os.getenv("SMTP_USE_TLS", "true").lower() not in {"0", "false", "no"}
+    mail_from = (os.getenv("MAIL_FROM", "").strip() or smtp_username)
 
-    if not smtp_username or not smtp_password or not mail_from:
+    if not smtp_username:
+        raise RuntimeError("Gmail sender address is missing.")
+    if not smtp_password:
         raise RuntimeError(
-            "Gmail email is not configured. Set GMAIL_USERNAME and "
-            "GMAIL_APP_PASSWORD in Render (or SMTP_USERNAME and SMTP_PASSWORD)."
+            "Gmail is not authenticated. In Render, add GMAIL_USERNAME="
+            "josehr.tan@gmail.com and GMAIL_APP_PASSWORD using a Google App Password."
         )
+    if smtp_port not in (465, 587):
+        raise RuntimeError("SMTP_PORT must be 465 or 587 for Gmail.")
 
     message = EmailMessage()
     message["Subject"] = "MCTC Staff Portal - Password Reset"
@@ -1626,18 +1623,27 @@ Official Court Information Portal
 """
     )
 
-    if use_ssl or smtp_port == 465:
-        with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=30) as server:
-            server.login(smtp_username, smtp_password)
-            server.send_message(message)
-    else:
-        with smtplib.SMTP(smtp_host, smtp_port, timeout=30) as server:
-            server.ehlo()
-            if use_tls:
+    timeout = 30
+    try:
+        if smtp_port == 465:
+            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=timeout) as server:
+                server.ehlo()
+                server.login(smtp_username, smtp_password)
+                server.send_message(message)
+        else:
+            with smtplib.SMTP(smtp_host, smtp_port, timeout=timeout) as server:
+                server.ehlo()
                 server.starttls()
                 server.ehlo()
-            server.login(smtp_username, smtp_password)
-            server.send_message(message)
+                server.login(smtp_username, smtp_password)
+                server.send_message(message)
+    except smtplib.SMTPAuthenticationError as exc:
+        raise RuntimeError(
+            "Gmail rejected the credentials. Use a Google App Password, not the normal Gmail password. "
+            "Make sure 2-Step Verification is enabled on the Gmail account."
+        ) from exc
+    except (smtplib.SMTPException, OSError) as exc:
+        raise RuntimeError(f"Gmail SMTP connection failed: {type(exc).__name__}") from exc
 
 
 def password_reset_hash(token):
@@ -1694,6 +1700,32 @@ def staff_login():
     </section>
     """
     return render_page(tr("staff_login"), body)
+
+
+@app.route("/staff/test-email", methods=["POST"])
+@admin_required
+def test_email_configuration():
+    """Send a simple test message to the primary admin email."""
+    connection = db()
+    account = connection.execute(
+        "SELECT email, username FROM staff WHERE lower(username) = lower(?) LIMIT 1",
+        ("Admin",),
+    ).fetchone()
+    connection.close()
+
+    recipient = (account["email"] if account else "josehr.tan@gmail.com")
+    try:
+        base = os.getenv("PUBLIC_BASE_URL", request.host_url).rstrip("/")
+        test_url = f"{base}{url_for('staff_login')}"
+        send_password_reset_email(recipient, "Admin", test_url)
+    except Exception as exc:
+        audit("test_email_failed", type(exc).__name__)
+        flash(f"Gmail test failed: {exc}", "danger")
+        return redirect(url_for("staff_dashboard"))
+
+    audit("test_email_sent", recipient)
+    flash(f"Test email sent successfully to {recipient}.", "success")
+    return redirect(url_for("staff_dashboard"))
 
 
 @app.route("/staff/forgot-password", methods=["GET", "POST"])
@@ -1976,6 +2008,7 @@ def staff_dashboard():
             <a class="card centered" href="{url_for('change_password')}">
                 <h3>🔑 Change Password</h3><p>Update your staff account password.</p>
             </a>
+            {'<form method="post" action="' + url_for('test_email_configuration') + '" class="card centered" style="margin:0">' + '<h3>📧 Gmail Test</h3><p>Send a test message to the administrator email.</p><button type="submit">Send Test Email</button></form>' if session.get('staff_role') == 'admin' else ''}
         </div>
     </section>
 
