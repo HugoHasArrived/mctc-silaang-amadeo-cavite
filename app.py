@@ -4,12 +4,9 @@ import os
 import html
 import sqlite3
 import secrets
-import hashlib
-import smtplib
-from email.message import EmailMessage
 from pathlib import Path
 from functools import wraps
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from urllib.parse import quote_plus
 
 from flask import (
@@ -293,16 +290,6 @@ def initialize_database():
             role TEXT NOT NULL DEFAULT 'staff',
             active INTEGER NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
-        );
-
-        CREATE TABLE IF NOT EXISTS password_reset_tokens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            staff_id INTEGER NOT NULL,
-            token_hash TEXT UNIQUE NOT NULL,
-            expires_at TEXT NOT NULL,
-            used_at TEXT,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(staff_id) REFERENCES staff(id) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS cases (
@@ -1563,93 +1550,6 @@ def uploaded_file(filename):
 # STAFF LOGIN / LOGOUT
 # ================================================================
 
-def send_password_reset_email(recipient_email, recipient_username, reset_url):
-    """Send a one-time reset email through Gmail SMTP.
-
-    Gmail SMTP requires authentication. The supported setup is: 
-      GMAIL_USERNAME=josehr.tan@gmail.com
-      GMAIL_APP_PASSWORD=<Google 16-character app password>
-
-    SMTP_* variables remain supported for other providers.
-    """
-    smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com").strip() or "smtp.gmail.com"
-
-    raw_port = os.getenv("SMTP_PORT", "465").strip() or "465"
-    try:
-        smtp_port = int(raw_port)
-    except ValueError as exc:
-        raise RuntimeError("SMTP_PORT must be 465 or 587.") from exc
-
-    smtp_username = (
-        os.getenv("GMAIL_USERNAME", "").strip()
-        or os.getenv("SMTP_USERNAME", "").strip()
-        or "josehr.tan@gmail.com"
-    )
-
-    smtp_password = (
-        os.getenv("GMAIL_APP_PASSWORD", "")
-        or os.getenv("SMTP_PASSWORD", "")
-    ).strip().replace(" ", "")
-
-    mail_from = (os.getenv("MAIL_FROM", "").strip() or smtp_username)
-
-    if not smtp_username:
-        raise RuntimeError("Gmail sender address is missing.")
-    if not smtp_password:
-        raise RuntimeError(
-            "Gmail is not authenticated. In Render, add GMAIL_USERNAME="
-            "josehr.tan@gmail.com and GMAIL_APP_PASSWORD using a Google App Password."
-        )
-    if smtp_port not in (465, 587):
-        raise RuntimeError("SMTP_PORT must be 465 or 587 for Gmail.")
-
-    message = EmailMessage()
-    message["Subject"] = "MCTC Staff Portal - Password Reset"
-    message["From"] = mail_from
-    message["To"] = recipient_email
-    message.set_content(
-        f"""Hello {recipient_username},
-
-We received a request to reset your MCTC staff portal password.
-
-Use this secure, one-time link to create a new password:
-{reset_url}
-
-This link expires in 30 minutes and can only be used once.
-If you did not request this, you can safely ignore this email.
-
-Municipal Circuit Trial Court of Silang-Amadeo, Cavite
-Official Court Information Portal
-"""
-    )
-
-    timeout = 30
-    try:
-        if smtp_port == 465:
-            with smtplib.SMTP_SSL(smtp_host, smtp_port, timeout=timeout) as server:
-                server.ehlo()
-                server.login(smtp_username, smtp_password)
-                server.send_message(message)
-        else:
-            with smtplib.SMTP(smtp_host, smtp_port, timeout=timeout) as server:
-                server.ehlo()
-                server.starttls()
-                server.ehlo()
-                server.login(smtp_username, smtp_password)
-                server.send_message(message)
-    except smtplib.SMTPAuthenticationError as exc:
-        raise RuntimeError(
-            "Gmail rejected the credentials. Use a Google App Password, not the normal Gmail password. "
-            "Make sure 2-Step Verification is enabled on the Gmail account."
-        ) from exc
-    except (smtplib.SMTPException, OSError) as exc:
-        raise RuntimeError(f"Gmail SMTP connection failed: {type(exc).__name__}") from exc
-
-
-def password_reset_hash(token):
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
 @app.route("/staff/login", methods=["GET", "POST"])
 def staff_login():
     if session.get("staff_logged_in"):
@@ -1669,9 +1569,7 @@ def staff_login():
         ).fetchone()
         connection.close()
 
-        if staff and check_password_hash(
-            staff["password_hash"], password
-        ):
+        if staff and check_password_hash(staff["password_hash"], password):
             session.clear()
             session["staff_logged_in"] = True
             session["staff_id"] = staff["id"]
@@ -1696,179 +1594,9 @@ def staff_login():
             <br>
             <button type="submit">{tr('login') if 'login' in T[lang_value()] else 'Log In'}</button>
         </form>
-        <p style="margin-top:18px"><a href="{url_for('forgot_password')}">Forgot Password?</a></p>
     </section>
     """
     return render_page(tr("staff_login"), body)
-
-
-@app.route("/staff/test-email", methods=["POST"])
-@admin_required
-def test_email_configuration():
-    """Send a simple test message to the primary admin email."""
-    connection = db()
-    account = connection.execute(
-        "SELECT email, username FROM staff WHERE lower(username) = lower(?) LIMIT 1",
-        ("Admin",),
-    ).fetchone()
-    connection.close()
-
-    recipient = (account["email"] if account else "josehr.tan@gmail.com")
-    try:
-        base = os.getenv("PUBLIC_BASE_URL", request.host_url).rstrip("/")
-        test_url = f"{base}{url_for('staff_login')}"
-        send_password_reset_email(recipient, "Admin", test_url)
-    except Exception as exc:
-        audit("test_email_failed", type(exc).__name__)
-        flash(f"Gmail test failed: {exc}", "danger")
-        return redirect(url_for("staff_dashboard"))
-
-    audit("test_email_sent", recipient)
-    flash(f"Test email sent successfully to {recipient}.", "success")
-    return redirect(url_for("staff_dashboard"))
-
-
-@app.route("/staff/forgot-password", methods=["GET", "POST"])
-def forgot_password():
-    generic_message = "If the account exists, a password reset link has been sent to its email address."
-    if request.method == "POST":
-        account = request.form.get("account", "").strip()
-        connection = db()
-        staff = connection.execute(
-            "SELECT id, username, email FROM staff WHERE active = 1 AND (lower(username) = lower(?) OR lower(email) = lower(?)) LIMIT 1",
-            (account, account),
-        ).fetchone()
-
-        if staff:
-            # Invalidate earlier unused reset links for this account.
-            connection.execute(
-                "UPDATE password_reset_tokens SET used_at = ? WHERE staff_id = ? AND used_at IS NULL",
-                (now(), staff["id"]),
-            )
-            token = secrets.token_urlsafe(48)
-            token_hash = password_reset_hash(token)
-            expires_at = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
-            connection.execute(
-                "INSERT INTO password_reset_tokens (staff_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)",
-                (staff["id"], token_hash, expires_at, now()),
-            )
-            durable_commit(connection)
-            reset_base = os.getenv("PUBLIC_BASE_URL", request.host_url).rstrip("/")
-            reset_url = f"{reset_base}{url_for('reset_password', token=token)}"
-            connection.close()
-            try:
-                send_password_reset_email(staff["email"], staff["username"], reset_url)
-            except Exception as exc:
-                # Never expose SMTP credentials or raw mail-service errors to the user.
-                audit("password_reset_email_failed", f"{staff['username']}:{type(exc).__name__}")
-                flash("The password reset request was recorded, but the email could not be sent. Please check the court email settings in Render.", "danger")
-                return redirect(url_for("staff_login"))
-            audit("password_reset_requested", staff["username"])
-        else:
-            connection.close()
-
-        flash(generic_message, "success")
-        return redirect(url_for("staff_login"))
-
-    body = """
-    <section class="card centered" style="max-width:620px;margin:45px auto">
-        <h1>🔐 Forgot Password</h1>
-        <p class="small">Enter your staff username or account email. If the account exists, we will email a secure reset link.</p>
-        <p class="small">Your password is never saved in plain text. Submitted account changes are saved in the server database.</p>
-        <form method="post" autocomplete="off">
-            <label for="account">Username or Email</label>
-            <input id="account" name="account" autocomplete="username email" required>
-            <br>
-            <button type="submit">Send Reset Link</button>
-        </form>
-        <p style="margin-top:18px"><a href="{login_url}">Back to Staff Login</a></p>
-    </section>
-    """.format(login_url=url_for("staff_login"))
-    return render_page("Forgot Password", body)
-
-
-@app.route("/staff/reset-password/<token>", methods=["GET", "POST"])
-def reset_password(token):
-    token_hash = password_reset_hash(token)
-    connection = db()
-    record = connection.execute(
-        """
-        SELECT pr.id, pr.staff_id, pr.expires_at, pr.used_at, s.username
-        FROM password_reset_tokens pr
-        JOIN staff s ON s.id = pr.staff_id
-        WHERE pr.token_hash = ? AND s.active = 1
-        LIMIT 1
-        """,
-        (token_hash,),
-    ).fetchone()
-
-    valid = False
-    if record and not record["used_at"]:
-        try:
-            expires = datetime.fromisoformat(record["expires_at"])
-            if expires > datetime.now(timezone.utc):
-                valid = True
-        except ValueError:
-            valid = False
-
-    if not valid:
-        connection.close()
-        body = """
-        <section class="card centered" style="max-width:620px;margin:45px auto">
-            <h1>Reset Link Expired</h1>
-            <p>This password reset link is invalid, expired, or has already been used.</p>
-            <a class="button" href="{url}">Request a New Link</a>
-        </section>
-        """.format(url=url_for("forgot_password"))
-        return render_page("Reset Password", body), 400
-
-    if request.method == "POST":
-        new_password = request.form.get("new_password", "")
-        confirm_password = request.form.get("confirm_password", "")
-        if len(new_password) < 8:
-            connection.close()
-            flash("New password must contain at least 8 characters.", "danger")
-            return redirect(url_for("reset_password", token=token))
-        if new_password != confirm_password:
-            connection.close()
-            flash("The new passwords do not match.", "danger")
-            return redirect(url_for("reset_password", token=token))
-
-        connection.execute(
-            "UPDATE staff SET password_hash = ? WHERE id = ?",
-            (generate_password_hash(new_password), record["staff_id"]),
-        )
-        connection.execute(
-            "UPDATE password_reset_tokens SET used_at = ? WHERE id = ?",
-            (now(), record["id"]),
-        )
-        # Invalidate every other outstanding reset token for this account.
-        connection.execute(
-            "UPDATE password_reset_tokens SET used_at = ? WHERE staff_id = ? AND used_at IS NULL",
-            (now(), record["staff_id"]),
-        )
-        durable_commit(connection)
-        connection.close()
-        audit("password_reset_completed", record["username"])
-        flash("Your password has been reset successfully. Please log in with your new password.", "success")
-        return redirect(url_for("staff_login"))
-
-    connection.close()
-    body = """
-    <section class="card centered" style="max-width:620px;margin:45px auto">
-        <h1>🔑 Reset Password</h1>
-        <p class="small">Choose a new password for your staff account.</p>
-        <form method="post" autocomplete="off">
-            <label for="new_password">New Password</label>
-            <input id="new_password" type="password" name="new_password" minlength="8" autocomplete="new-password" required>
-            <label for="confirm_password">Confirm New Password</label>
-            <input id="confirm_password" type="password" name="confirm_password" minlength="8" autocomplete="new-password" required>
-            <br>
-            <button type="submit">Reset Password</button>
-        </form>
-    </section>
-    """
-    return render_page("Reset Password", body)
 
 
 @app.route("/staff/change-password", methods=["GET", "POST"])
@@ -2008,7 +1736,6 @@ def staff_dashboard():
             <a class="card centered" href="{url_for('change_password')}">
                 <h3>🔑 Change Password</h3><p>Update your staff account password.</p>
             </a>
-            {'<form method="post" action="' + url_for('test_email_configuration') + '" class="card centered" style="margin:0">' + '<h3>📧 Gmail Test</h3><p>Send a test message to the administrator email.</p><button type="submit">Send Test Email</button></form>' if session.get('staff_role') == 'admin' else ''}
         </div>
     </section>
 
