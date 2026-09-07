@@ -4,9 +4,12 @@ import os
 import html
 import sqlite3
 import secrets
+import hashlib
+import smtplib
+from email.message import EmailMessage
 from pathlib import Path
 from functools import wraps
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from urllib.parse import quote_plus
 
 from flask import (
@@ -264,7 +267,18 @@ def db():
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA foreign_keys = ON")
     connection.execute("PRAGMA journal_mode = WAL")
+    connection.execute("PRAGMA synchronous = FULL")
+    connection.execute("PRAGMA busy_timeout = 30000")
     return connection
+
+
+def durable_commit(connection):
+    """Commit changes immediately so submitted staff data is persisted server-side."""
+    connection.commit()
+    try:
+        connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
+    except sqlite3.Error:
+        pass
 
 
 def initialize_database():
@@ -436,12 +450,14 @@ def initialize_database():
             ),
         )
     else:
+        # Keep the administrator's current password. Only correct the account
+        # identity/role and reactivate the account if necessary.
         connection.execute(
             "UPDATE staff SET username = ?, email = ?, role = ?, active = 1 WHERE id = ?",
             ("Admin", "josehr.tan@gmail.com", "admin", admin["id"]),
         )
 
-    connection.commit()
+    durable_commit(connection)
     connection.close()
 
 
@@ -1668,16 +1684,16 @@ def forgot_password():
                 "INSERT INTO password_reset_tokens (staff_id, token_hash, expires_at, created_at) VALUES (?, ?, ?, ?)",
                 (staff["id"], token_hash, expires_at, now()),
             )
-            connection.commit()
+            durable_commit(connection)
             reset_base = os.getenv("PUBLIC_BASE_URL", request.host_url).rstrip("/")
             reset_url = f"{reset_base}{url_for('reset_password', token=token)}"
             connection.close()
             try:
                 send_password_reset_email(staff["email"], staff["username"], reset_url)
-            except Exception:
-                # Do not expose SMTP credentials/configuration to the user.
-                audit("password_reset_email_failed", staff["username"])
-                flash("The password reset email could not be sent. Please contact the court administrator.", "danger")
+            except Exception as exc:
+                # Never expose SMTP credentials or raw mail-service errors to the user.
+                audit("password_reset_email_failed", f"{staff['username']}:{type(exc).__name__}")
+                flash("The password reset request was recorded, but the email could not be sent. Please check the court email settings in Render.", "danger")
                 return redirect(url_for("staff_login"))
             audit("password_reset_requested", staff["username"])
         else:
@@ -1690,6 +1706,7 @@ def forgot_password():
     <section class="card centered" style="max-width:620px;margin:45px auto">
         <h1>🔐 Forgot Password</h1>
         <p class="small">Enter your staff username or account email. If the account exists, we will email a secure reset link.</p>
+        <p class="small">Your password is never saved in plain text. Submitted account changes are saved in the server database.</p>
         <form method="post" autocomplete="off">
             <label for="account">Username or Email</label>
             <input id="account" name="account" autocomplete="username email" required>
@@ -1762,7 +1779,7 @@ def reset_password(token):
             "UPDATE password_reset_tokens SET used_at = ? WHERE staff_id = ? AND used_at IS NULL",
             (now(), record["staff_id"]),
         )
-        connection.commit()
+        durable_commit(connection)
         connection.close()
         audit("password_reset_completed", record["username"])
         flash("Your password has been reset successfully. Please log in with your new password.", "success")
