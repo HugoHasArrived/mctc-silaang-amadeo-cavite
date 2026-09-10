@@ -1,18 +1,14 @@
-# Core imports
 from __future__ import annotations
 import os
 import html
 import sqlite3
+import io
 import secrets
 import hashlib
 from pathlib import Path
 from functools import wraps
 from datetime import datetime, timezone, timedelta
 from urllib.parse import quote_plus
-from urllib.request import Request, urlopen
-from urllib.error import URLError, HTTPError
-import json
-# Flask web application dependencies
 from flask import (
     Flask,
     abort,
@@ -26,6 +22,16 @@ from flask import (
 )
 from werkzeug.security import check_password_hash, generate_password_hash
 from werkzeug.utils import secure_filename
+try:
+    from pymongo import MongoClient
+    from pymongo.errors import PyMongoError
+    from gridfs import GridFSBucket
+    MONGODB_DRIVER_AVAILABLE = True
+except ImportError:
+    MongoClient = None
+    PyMongoError = Exception
+    GridFSBucket = None
+    MONGODB_DRIVER_AVAILABLE = False
 BASE_DIR = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
 try:
@@ -57,7 +63,6 @@ app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 if os.environ.get("RENDER"):
     app.config["SESSION_COOKIE_SECURE"] = True
-# Court configuration and application paths
 COURT_NAME = "Municipal Circuit Trial Court of Silang-Amadeo, Cavite"
 COURT_SHORT_NAME = "MCTC Silang-Amadeo"
 COURT_ADDRESS = "PNP Bldg, Plaza Libertad, Poblacion 2, Silang, Cavite"
@@ -65,14 +70,31 @@ COURT_PHONE = "09284621305"
 COURT_EMAIL = "mctc2sad000@judiciary.gov.ph"
 COURT_OFFICE_HOURS = "8:00 AM - 5:00 PM"
 MCTC_LOGO = "image0.png"
+MONGODB_URI = os.environ.get("MONGODB_URI", "").strip()
+MONGODB_DB_NAME = os.environ.get("MONGODB_DB", "mctc_silang_amadeo").strip() or "mctc_silang_amadeo"
+MONGO_CLIENT = None
+MONGO_DB = None
+MONGO_UPLOADS = None
+MONGO_STATE = None
+MONGO_READY = False
+MONGO_ERROR = ""
+MONGO_LAST_SYNC = ""
+MONGO_COLLECTIONS = (
+    "staff",
+    "cases",
+    "hearings",
+    "notices",
+    "legal_resources",
+    "requirements",
+    "schedule",
+    "audit_logs",
+    "private_notepad",
+)
 SUPREME_LOGO = "1280px-Seal_of_the_Supreme_Court_(Philippines).png"
 MAP_QUERY = quote_plus(f"{COURT_NAME}, {COURT_ADDRESS}")
 GOOGLE_MAPS_URL = (
     "https://www.google.com/maps/search/?api=1&query=" + MAP_QUERY
 )
-GOOGLE_APPS_SCRIPT_URL = os.environ.get("GOOGLE_APPS_SCRIPT_URL", "").strip()
-GOOGLE_APPS_SCRIPT_SECRET = os.environ.get("GOOGLE_APPS_SCRIPT_SECRET", "").strip()
-PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "").strip().rstrip("/")
 ALLOWED_EXTENSIONS = {
     "pdf", "png", "jpg", "jpeg", "webp", "gif",
     "doc", "docx", "xls", "xlsx", "txt",
@@ -208,6 +230,156 @@ def now():
 def current_theme():
     theme = session.get("theme", "light")
     return theme if theme in {"light", "dark"} else "light"
+def configure_mongodb():
+    global MONGO_CLIENT, MONGO_DB, MONGO_UPLOADS, MONGO_STATE
+    global MONGO_READY, MONGO_ERROR
+    if not MONGODB_URI:
+        MONGO_READY = False
+        MONGO_ERROR = "MONGODB_URI is not configured."
+        return
+    if not MONGODB_DRIVER_AVAILABLE:
+        MONGO_READY = False
+        MONGO_ERROR = "pymongo is not installed. Add pymongo[srv] to requirements.txt."
+        return
+    try:
+        MONGO_CLIENT = MongoClient(
+            MONGODB_URI,
+            serverSelectionTimeoutMS=8000,
+            connectTimeoutMS=8000,
+            socketTimeoutMS=20000,
+            retryWrites=True,
+        )
+        MONGO_CLIENT.admin.command("ping")
+        MONGO_DB = MONGO_CLIENT[MONGODB_DB_NAME]
+        MONGO_UPLOADS = GridFSBucket(MONGO_DB, bucket_name="uploads")
+        MONGO_STATE = GridFSBucket(MONGO_DB, bucket_name="application_state")
+        MONGO_READY = True
+        MONGO_ERROR = ""
+    except Exception as error:
+        MONGO_READY = False
+        MONGO_ERROR = f"{type(error).__name__}: {error}"
+
+def restore_sqlite_from_mongodb():
+    if not MONGO_READY or MONGO_STATE is None:
+        return False
+    try:
+        latest = None
+        for item in MONGO_STATE.find({"filename": "mctc_court.db"}).sort("uploadDate", -1).limit(1):
+            latest = item
+            break
+        if latest is None:
+            return False
+        data = MONGO_STATE.open_download_stream(latest["_id"]).read()
+        temp = DB_PATH.with_suffix(".mongo-restored.db")
+        temp.write_bytes(data)
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(str(DB_PATH) + suffix)
+            if sidecar.exists():
+                try:
+                    sidecar.unlink()
+                except OSError:
+                    pass
+        temp.replace(DB_PATH)
+        return True
+    except Exception as error:
+        global MONGO_ERROR
+        MONGO_ERROR = f"Restore failed: {type(error).__name__}: {error}"
+        return False
+
+def restore_uploads_from_mongodb():
+    if not MONGO_READY or MONGO_UPLOADS is None:
+        return
+    try:
+        for item in MONGO_UPLOADS.find({"metadata.kind": "application-upload"}):
+            local_name = (item.get("metadata") or {}).get("local_name")
+            if not local_name:
+                continue
+            destination = UPLOAD_DIR / secure_filename(local_name)
+            data = MONGO_UPLOADS.open_download_stream(item["_id"]).read()
+            destination.write_bytes(data)
+    except Exception as error:
+        global MONGO_ERROR
+        MONGO_ERROR = f"Upload restore failed: {type(error).__name__}: {error}"
+
+def sync_sqlite_to_mongodb():
+    global MONGO_LAST_SYNC, MONGO_ERROR
+    if not MONGO_READY or MONGO_STATE is None:
+        return False
+    try:
+        for old in MONGO_STATE.find({"filename": "mctc_court.db"}):
+            MONGO_STATE.delete(old["_id"])
+        data = DB_PATH.read_bytes()
+        with MONGO_STATE.open_upload_stream(
+            "mctc_court.db",
+            metadata={"kind": "sqlite-snapshot", "updated_at": now()},
+        ) as stream:
+            stream.write(data)
+        MONGO_LAST_SYNC = now()
+        MONGO_ERROR = ""
+        return True
+    except Exception as error:
+        MONGO_ERROR = f"Sync failed: {type(error).__name__}: {error}"
+        return False
+
+def sync_sqlite_collections_to_mongodb(connection):
+    if not MONGO_READY or MONGO_DB is None:
+        return False
+    try:
+        for table_name in MONGO_COLLECTIONS:
+            rows = connection.execute(f"SELECT * FROM {table_name}").fetchall()
+            documents = []
+            for row in rows:
+                item = {key: row[key] for key in row.keys()}
+                if "id" in item:
+                    item["_legacy_id"] = item["id"]
+                item["_source_table"] = table_name
+                item["_synced_at"] = now()
+                item["_id"] = f"{table_name}:{item.get('id', 'singleton')}"
+                documents.append(item)
+            collection = MONGO_DB[table_name]
+            collection.delete_many({})
+            if documents:
+                collection.insert_many(documents, ordered=False)
+        return True
+    except Exception as error:
+        global MONGO_ERROR
+        MONGO_ERROR = f"Collection sync failed: {type(error).__name__}: {error}"
+        return False
+
+def sync_uploaded_file_to_mongodb(local_name, original_name=None):
+    if not MONGO_READY or MONGO_UPLOADS is None:
+        return True
+    try:
+        path = UPLOAD_DIR / local_name
+        if not path.exists():
+            return False
+        data = path.read_bytes()
+        with MONGO_UPLOADS.open_upload_stream(
+            local_name,
+            metadata={
+                "kind": "application-upload",
+                "local_name": local_name,
+                "original_name": original_name or local_name,
+                "updated_at": now(),
+            },
+        ) as stream:
+            stream.write(data)
+        return True
+    except Exception as error:
+        global MONGO_ERROR
+        MONGO_ERROR = f"File sync failed: {type(error).__name__}: {error}"
+        return False
+
+def delete_uploaded_file_from_mongodb(local_name):
+    if not MONGO_READY or MONGO_UPLOADS is None:
+        return
+    try:
+        for item in MONGO_UPLOADS.find({"metadata.local_name": local_name}):
+            MONGO_UPLOADS.delete(item["_id"])
+    except Exception as error:
+        global MONGO_ERROR
+        MONGO_ERROR = f"File delete sync failed: {type(error).__name__}: {error}"
+
 def db():
     connection = sqlite3.connect(DB_PATH, timeout=30)
     connection.row_factory = sqlite3.Row
@@ -216,14 +388,22 @@ def db():
     connection.execute("PRAGMA synchronous = FULL")
     connection.execute("PRAGMA busy_timeout = 30000")
     return connection
+
 def durable_commit(connection):
-    """Commit changes immediately so submitted staff data is persisted server-side."""
+    """Commit changes and mirror the current database into MongoDB when configured."""
     connection.commit()
     try:
-        connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
     except sqlite3.Error:
-        pass
-# Database initialization and migrations
+        try:
+            connection.execute("PRAGMA wal_checkpoint(PASSIVE)")
+        except sqlite3.Error:
+            pass
+    if MONGO_READY:
+        sync_sqlite_collections_to_mongodb(connection)
+        if not sync_sqlite_to_mongodb():
+            return False
+    return True
 def initialize_database():
     connection = db()
     connection.executescript(
@@ -308,19 +488,11 @@ def initialize_database():
             target TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL
         );
-        CREATE TABLE IF NOT EXISTS password_reset_tokens (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            staff_id INTEGER NOT NULL,
-            token_hash TEXT UNIQUE NOT NULL,
-            expires_at TEXT NOT NULL,
-            used INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL,
-            FOREIGN KEY(staff_id) REFERENCES staff(id) ON DELETE CASCADE
-        );
-        CREATE TABLE IF NOT EXISTS private_notes (
+        CREATE TABLE IF NOT EXISTS private_notepad (
             id INTEGER PRIMARY KEY CHECK (id = 1),
             content TEXT NOT NULL DEFAULT '',
-            updated_at TEXT NOT NULL
+            updated_at TEXT NOT NULL,
+            updated_by TEXT NOT NULL DEFAULT ''
         );
         """
     )
@@ -410,62 +582,18 @@ def initialize_database():
             "UPDATE staff SET email = ?, role = ?, active = 1 WHERE id = ?",
             ("26-0054@staff.local", "superadmin", superadmin["id"]),
         )
+    note = connection.execute("SELECT id FROM private_notepad WHERE id = 1").fetchone()
+    if note is None:
+        connection.execute(
+            "INSERT INTO private_notepad (id, content, updated_at, updated_by) VALUES (1, '', ?, ?)",
+            (now(), "system"),
+        )
     durable_commit(connection)
     connection.close()
+configure_mongodb()
+restore_sqlite_from_mongodb()
+restore_uploads_from_mongodb()
 initialize_database()
-# Password reset helpers
-def hash_reset_token(token):
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-def build_public_url(path):
-    base = PUBLIC_BASE_URL or request.url_root.rstrip("/")
-    return base + path
-def send_gmail_reset_email(recipient, reset_url, username="Court Staff"):
-    if not GOOGLE_APPS_SCRIPT_URL or not GOOGLE_APPS_SCRIPT_SECRET:
-        return False, (
-            "Gmail reset email is not configured. Set GOOGLE_APPS_SCRIPT_URL and "
-            "GOOGLE_APPS_SCRIPT_SECRET in Render Environment Variables."
-        )
-    payload = {
-        "secret": GOOGLE_APPS_SCRIPT_SECRET,
-        "to": recipient,
-        "username": username,
-        "reset_url": reset_url,
-        "court_name": COURT_NAME,
-        "expires_minutes": 30,
-    }
-    try:
-        encoded = json.dumps(payload).encode("utf-8")
-        req = Request(
-            GOOGLE_APPS_SCRIPT_URL,
-            data=encoded,
-            headers={
-                "Content-Type": "application/json",
-                "User-Agent": "MCTC-Silang-Amadeo-Portal/1.0",
-            },
-            method="POST",
-        )
-        with urlopen(req, timeout=30) as response:
-            raw = response.read().decode("utf-8", "replace")
-        result = json.loads(raw)
-        if isinstance(result, dict) and result.get("ok") is True:
-            return True, "Password reset email sent."
-        if isinstance(result, dict):
-            return False, str(result.get("error") or "Gmail rejected the reset email request.")
-        return False, "Gmail returned an invalid response."
-    except HTTPError as exc:
-        try:
-            detail = exc.read().decode("utf-8", "replace")
-        except Exception:
-            detail = str(exc)
-        return False, f"Gmail bridge HTTP error {exc.code}: {detail[:500]}"
-    except URLError as exc:
-        return False, f"Could not reach the Gmail bridge: {exc.reason}"
-    except TimeoutError:
-        return False, "The Gmail bridge timed out. Please try again."
-    except json.JSONDecodeError:
-        return False, "The Gmail bridge returned an invalid response."
-    except Exception as exc:
-        return False, f"Gmail bridge error: {type(exc).__name__}: {exc}"
 BOND_REQUIREMENTS = [
     "Personal Data (form from court)",
     "Pictures 2x2 with name tag, signature, case, case number and date",
@@ -485,7 +613,6 @@ BOND_REQUIREMENTS = [
     "If married, female - original copy of PSA Marriage Certificate with attached receipt",
     "For inquiries, kindly seek assistance from court staff.",
 ]
-# Audit logging
 def audit(action, target=""):
     try:
         connection = db()
@@ -501,7 +628,7 @@ def audit(action, target=""):
                 now(),
             ),
         )
-        connection.commit()
+        durable_commit(connection)
         connection.close()
     except sqlite3.Error:
         pass
@@ -543,6 +670,12 @@ def save_upload(file):
         raise ValueError("That file type is not allowed.")
     generated = f"{secrets.token_hex(16)}_{original}"
     file.save(UPLOAD_DIR / generated)
+    if MONGO_READY and not sync_uploaded_file_to_mongodb(generated, original):
+        try:
+            (UPLOAD_DIR / generated).unlink()
+        except OSError:
+            pass
+        raise ValueError("The upload could not be synchronized to MongoDB.")
     return generated, original, extension
 def delete_uploaded_file(filename):
     if not filename:
@@ -553,7 +686,7 @@ def delete_uploaded_file(filename):
             path.unlink()
         except OSError:
             pass
-# Site-wide CSS
+    delete_uploaded_file_from_mongodb(filename)
 STYLE = r"""
 :root {
     --bg: #faf8fd;
@@ -920,64 +1053,6 @@ footer p { margin: 8px 0; }
         height: 78px;
     }
 }
-
-.super-panel {
-    background: linear-gradient(135deg, #2b0b45, #6d28d9 58%, #8b5cf6);
-    color: white;
-    border-radius: 24px;
-    padding: 34px;
-    margin: 12px 0 24px;
-    box-shadow: 0 16px 40px rgba(70, 20, 100, .22);
-    text-align: center;
-}
-.super-badge {
-    display: inline-block;
-    padding: 6px 12px;
-    border-radius: 999px;
-    background: rgba(255,255,255,.16);
-    border: 1px solid rgba(255,255,255,.24);
-    font-size: 11px;
-    font-weight: 900;
-    letter-spacing: .08em;
-}
-.super-panel h1 { margin: 12px 0 6px; font-size: 34px; }
-.super-panel p { margin: 0; opacity: .92; }
-.super-quick-panel { margin: 0 0 24px; }
-.super-quick-panel h2 { text-align: center; margin-top: 0; }
-.super-tool-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; }
-.super-tool {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    align-items: center;
-    justify-content: center;
-    min-height: 150px;
-    padding: 18px;
-    border: 1px solid var(--border);
-    border-radius: 18px;
-    background: linear-gradient(180deg, var(--surface), var(--surface-soft));
-    color: var(--text);
-    text-align: center;
-    box-shadow: 0 7px 18px rgba(55,18,72,.08);
-}
-.super-tool:hover { text-decoration: none; transform: translateY(-2px); }
-.tool-icon { font-size: 32px; }
-.private-note-card { max-width: 980px; margin: 0 auto 24px; }
-.private-note-header, .private-note-footer { display: flex; align-items: center; justify-content: space-between; gap: 15px; }
-.private-notepad {
-    width: 100%;
-    min-height: 420px;
-    resize: vertical;
-    margin: 16px 0;
-    padding: 18px;
-    border: 2px solid var(--border);
-    border-radius: 16px;
-    background: var(--surface);
-    color: var(--text);
-    font: 16px/1.65 Arial, Helvetica, sans-serif;
-    box-shadow: inset 0 2px 8px rgba(0,0,0,.03);
-}
-.private-notepad:focus { outline: none; border-color: var(--purple-light); box-shadow: 0 0 0 4px rgba(139,92,246,.14); }
 @media (max-width: 850px) {
     .header-title { font-size: 18px; }
     .header-subtitle { font-size: 12px; }
@@ -986,7 +1061,6 @@ footer p { margin: 8px 0; }
     .header-nav button { font-size: 11px; padding: 8px; }
     .nav-logo { width: 68px; height: 68px; }
 }
-@media (max-width: 950px) { .super-tool-grid { grid-template-columns: repeat(2, 1fr); } }
 @media (max-width: 600px) {
     .header-nav { flex-direction: row; }
     .hero { padding: 36px 16px; }
@@ -994,7 +1068,6 @@ footer p { margin: 8px 0; }
     .two { grid-template-columns: 1fr; }
 }
 """
-# Shared page wrapper and navigation
 def render_page(title, body, staff_page=False):
     theme = current_theme()
     other_theme = "dark" if theme == "light" else "light"
@@ -1034,7 +1107,7 @@ def render_page(title, body, staff_page=False):
                 f"<a href='{url_for('superadmin_dashboard')}'>🛡️ Super Admin</a>"
             )
             nav.append(
-                f"<a href='{url_for('superadmin_notepad')}'>📝 Private Notepad</a>"
+                f"<a href='{url_for('private_notepad')}'>📝 Private Notepad</a>"
             )
         nav.append(
             f"<a href='{url_for('change_password')}'>🔑 Change Password</a>"
@@ -1150,7 +1223,6 @@ def render_page(title, body, staff_page=False):
 def lang_value():
     value = session.get("language", "en")
     return value if value in T else "en"
-# Public homepage
 @app.route("/")
 def home():
     connection = db()
@@ -1441,7 +1513,6 @@ def requirements():
         </section>
         """
     return render_page(tr("requirements"), body)
-# Public Tuesday Calendar
 @app.route("/calendar")
 def public_calendar():
     connection = db()
@@ -1483,7 +1554,6 @@ def public_calendar():
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
     return send_from_directory(UPLOAD_DIR, filename)
-# Staff authentication
 @app.route("/staff/login", methods=["GET", "POST"])
 def staff_login():
     if session.get("staff_logged_in"):
@@ -1529,161 +1599,68 @@ def staff_login():
     return render_page(tr("staff_login"), body)
 @app.route("/staff/forgot-password", methods=["GET", "POST"])
 def forgot_password():
-    """Create and email a one-time password-reset link."""
+    """Reset a password locally without email using the court recovery code."""
     if request.method == "POST":
-        identifier = request.form.get("identifier", "").strip()
-        generic_message = (
-            "If an active staff account matches that username or email, "
-            "a reset link has been sent to the registered email address."
-        )
-        if not identifier:
-            flash("Please enter your username or registered email address.", "danger")
+        username = request.form.get("username", "").strip()
+        recovery_code = request.form.get("recovery_code", "")
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        expected_code = os.environ.get("STAFF_RECOVERY_CODE", "MCTC-RESET-2026")
+        if not username or not recovery_code or not new_password or not confirm_password:
+            flash("Please fill in all recovery fields.", "danger")
+            return redirect(url_for("forgot_password"))
+        if not secrets.compare_digest(recovery_code, expected_code):
+            flash("The recovery code is incorrect.", "danger")
+            return redirect(url_for("forgot_password"))
+        if len(new_password) < 8:
+            flash("New password must contain at least 8 characters.", "danger")
+            return redirect(url_for("forgot_password"))
+        if new_password != confirm_password:
+            flash("The new passwords do not match.", "danger")
             return redirect(url_for("forgot_password"))
         connection = db()
         staff = connection.execute(
-            """
-            SELECT id, username, email
-            FROM staff
-            WHERE active = 1
-              AND (lower(username) = lower(?) OR lower(email) = lower(?))
-            LIMIT 1
-            """,
-            (identifier, identifier),
+            "SELECT id, username, password_hash, active FROM staff WHERE lower(username) = lower(?) LIMIT 1",
+            (username,),
         ).fetchone()
-        if staff is None:
+        if staff is None or not staff["active"]:
             connection.close()
-            flash(generic_message, "success")
-            return redirect(url_for("staff_login"))
-        connection.execute(
-            "UPDATE password_reset_tokens SET used = 1 WHERE staff_id = ? AND used = 0",
-            (staff["id"],),
-        )
-        raw_token = secrets.token_urlsafe(48)
-        connection.execute(
-            """
-            INSERT INTO password_reset_tokens
-            (staff_id, token_hash, expires_at, used, created_at)
-            VALUES (?, ?, ?, 0, ?)
-            """,
-            (
-                staff["id"],
-                hash_reset_token(raw_token),
-                (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
-                now(),
-            ),
-        )
-        durable_commit(connection)
-        connection.close()
-        reset_url = build_public_url(url_for("reset_password", token=raw_token))
-        sent, details = send_gmail_reset_email(staff["email"], reset_url, staff["username"])
-        if sent:
-            audit("password_reset_requested", staff["username"])
-            flash(generic_message, "success")
-        else:
-            cleanup = db()
-            cleanup.execute(
-                "UPDATE password_reset_tokens SET used = 1 WHERE token_hash = ?",
-                (hash_reset_token(raw_token),),
-            )
-            durable_commit(cleanup)
-            cleanup.close()
-            flash(details, "danger")
-        return redirect(url_for("staff_login"))
-    body = f"""
-    <section class="card centered" style="max-width:620px;margin:45px auto">
-        <h1>🔐 {tr('forgot_password_title')}</h1>
-        <p class="small">{tr('forgot_password_help')}</p>
-        <form method="post" autocomplete="off">
-            <label for="identifier">Username or registered email</label>
-            <input id="identifier" name="identifier" autocomplete="username" required>
-            <br>
-            <button type="submit">Send Reset Email</button>
-        </form>
-        <p class="center" style="margin-top:18px"><a href="{url_for('staff_login')}">← Back to Staff Login</a></p>
-    </section>
-    """
-    return render_page(tr("forgot_password_title"), body)
-@app.route("/staff/reset-password/<token>", methods=["GET", "POST"])
-def reset_password(token):
-    token_hash = hash_reset_token(token)
-    connection = db()
-    record = connection.execute(
-        """
-        SELECT pr.id, pr.staff_id, pr.expires_at, pr.used, s.username
-        FROM password_reset_tokens pr
-        JOIN staff s ON s.id = pr.staff_id
-        WHERE pr.token_hash = ? AND s.active = 1
-        LIMIT 1
-        """,
-        (token_hash,),
-    ).fetchone()
-    valid = False
-    if record is not None and not record["used"]:
-        try:
-            valid = datetime.fromisoformat(record["expires_at"]) > datetime.now(timezone.utc)
-        except ValueError:
-            valid = False
-    if not valid:
-        connection.close()
-        body = """
-        <section class="card centered" style="max-width:620px;margin:45px auto">
-            <h1>🔒 Reset Link Invalid or Expired</h1>
-            <p>This password-reset link is invalid, expired, or has already been used.</p>
-            <a class="button" href="/staff/forgot-password">Request a New Reset Link</a>
-        </section>
-        """
-        return render_page("Reset Password", body), 400
-    if request.method == "POST":
-        new_password = request.form.get("new_password", "")
-        confirm_password = request.form.get("confirm_password", "")
-        if len(new_password) < 8:
-            connection.close()
-            flash("New password must contain at least 8 characters.", "danger")
-            return redirect(url_for("reset_password", token=token))
-        if new_password != confirm_password:
-            connection.close()
-            flash("The new passwords do not match.", "danger")
-            return redirect(url_for("reset_password", token=token))
-        staff = connection.execute(
-            "SELECT password_hash, username FROM staff WHERE id = ? AND active = 1",
-            (record["staff_id"],),
-        ).fetchone()
-        if staff is None:
-            connection.close()
-            abort(400)
+            flash("That account was not found or is disabled.", "danger")
+            return redirect(url_for("forgot_password"))
         if check_password_hash(staff["password_hash"], new_password):
             connection.close()
             flash("New password must be different from the current password.", "danger")
-            return redirect(url_for("reset_password", token=token))
+            return redirect(url_for("forgot_password"))
         connection.execute(
             "UPDATE staff SET password_hash = ? WHERE id = ?",
-            (generate_password_hash(new_password), record["staff_id"]),
-        )
-        connection.execute(
-            "UPDATE password_reset_tokens SET used = 1 WHERE staff_id = ?",
-            (record["staff_id"],),
+            (generate_password_hash(new_password), staff["id"]),
         )
         durable_commit(connection)
         connection.close()
-        audit("password_reset_completed", staff["username"])
-        flash("Password reset successfully. You can now log in.", "success")
+        audit("password_recovered", staff["username"])
+        flash("Password changed successfully. You can now log in.", "success")
         return redirect(url_for("staff_login"))
-    connection.close()
     body = """
     <section class="card centered" style="max-width:620px;margin:45px auto">
-        <h1>🔑 Create New Password</h1>
-        <p class="small">Choose a new password for your staff account.</p>
+        <h1>🔐 Forgot Password</h1>
+        <p class="small">No email is required. Enter your username, the court recovery code, and your new password.</p>
         <form method="post" autocomplete="off">
+            <label for="username">Username</label>
+            <input id="username" name="username" autocomplete="username" required>
+            <label for="recovery_code">Recovery Code</label>
+            <input id="recovery_code" type="password" name="recovery_code" autocomplete="off" required>
             <label for="new_password">New Password</label>
             <input id="new_password" type="password" name="new_password" minlength="8" autocomplete="new-password" required>
             <label for="confirm_password">Confirm New Password</label>
             <input id="confirm_password" type="password" name="confirm_password" minlength="8" autocomplete="new-password" required>
             <br>
-            <button type="submit">Save New Password</button>
+            <button type="submit">Change Password</button>
         </form>
+        <p class="center" style="margin-top:18px"><a href="{url_for('staff_login')}">← Back to Staff Login</a></p>
     </section>
     """
-    return render_page("Reset Password", body)
+    return render_page("Forgot Password", body, staff_page=True)
+
 @app.route("/staff/change-password", methods=["GET", "POST"])
 @staff_required
 def change_password():
@@ -1724,7 +1701,7 @@ def change_password():
             "UPDATE staff SET password_hash = ? WHERE id = ?",
             (generate_password_hash(new_password), staff["id"]),
         )
-        connection.commit()
+        durable_commit(connection)
         connection.close()
         audit("password_changed", staff["username"])
         flash("Password changed successfully.", "success")
@@ -1902,7 +1879,7 @@ def staff_add_case():
                     now(),
                 ),
             )
-            connection.commit()
+            durable_commit(connection)
         except sqlite3.IntegrityError:
             connection.close()
             flash("That case number already exists.", "danger")
@@ -1969,7 +1946,7 @@ def staff_edit_case(case_id):
                 case_id,
             ),
         )
-        connection.commit()
+        durable_commit(connection)
         connection.close()
         audit("case_updated", case["case_number"])
         flash("Case updated successfully.", "success")
@@ -2007,7 +1984,7 @@ def staff_delete_case(case_id):
         connection.close()
         abort(404)
     connection.execute("DELETE FROM cases WHERE id = ?", (case_id,))
-    connection.commit()
+    durable_commit(connection)
     connection.close()
     audit("case_deleted", case["case_number"])
     flash("Case deleted successfully.", "success")
@@ -2060,7 +2037,7 @@ def staff_hearing(case_id):
                 """,
                 (case_id,) + values,
             )
-        connection.commit()
+        durable_commit(connection)
         connection.close()
         audit("hearing_updated", case["case_number"])
         flash("Hearing updated successfully.", "success")
@@ -2118,7 +2095,6 @@ def staff_hearing(case_id):
     </section>
     """
     return render_page(tr("hearing"), body, staff_page=True)
-# Tuesday Calendar administration
 @app.route("/staff/calendar")
 @staff_required
 def staff_calendar():
@@ -2202,7 +2178,7 @@ def upload_schedule():
             session.get("staff_username", ""),
         ),
     )
-    connection.commit()
+    durable_commit(connection)
     connection.close()
     if old and old["file_name"] and old["file_name"] != filename:
         delete_uploaded_file(old["file_name"])
@@ -2217,7 +2193,7 @@ def delete_schedule():
         "SELECT file_name FROM schedule WHERE id = 1"
     ).fetchone()
     connection.execute("DELETE FROM schedule WHERE id = 1")
-    connection.commit()
+    durable_commit(connection)
     connection.close()
     if row and row["file_name"]:
         delete_uploaded_file(row["file_name"])
@@ -2300,7 +2276,7 @@ def add_notice():
         """,
         values + (filename, original, now(), now()),
     )
-    connection.commit()
+    durable_commit(connection)
     connection.close()
     audit("notice_created", values[0])
     flash("Notice published successfully.", "success")
@@ -2317,7 +2293,7 @@ def delete_notice(notice_id):
         "DELETE FROM notices WHERE id = ?",
         (notice_id,),
     )
-    connection.commit()
+    durable_commit(connection)
     connection.close()
     if row:
         delete_uploaded_file(row["attachment"])
@@ -2416,7 +2392,7 @@ def add_law():
             now(),
         ),
     )
-    connection.commit()
+    durable_commit(connection)
     connection.close()
     audit("legal_resource_created", title)
     flash("Legal resource added.", "success")
@@ -2433,7 +2409,7 @@ def delete_law(law_id):
         "DELETE FROM legal_resources WHERE id = ?",
         (law_id,),
     )
-    connection.commit()
+    durable_commit(connection)
     connection.close()
     if row:
         delete_uploaded_file(row["file_name"])
@@ -2532,64 +2508,48 @@ def update_requirement(category):
                 category,
             ),
         )
-    connection.commit()
+    durable_commit(connection)
     connection.close()
     audit("requirement_updated", category)
     flash("Requirement updated.", "success")
     return redirect(url_for("staff_requirements"))
-@app.route("/staff/super-admin/notepad", methods=["GET", "POST"])
+# Private Super Admin Notepad
+@app.route("/staff/private-notepad", methods=["GET", "POST"])
 @superadmin_required
-def superadmin_notepad():
-    connection = db()
-    note = connection.execute("SELECT content, updated_at FROM private_notes WHERE id = 1").fetchone()
-    if note is None:
-        connection.execute(
-            "INSERT INTO private_notes (id, content, updated_at) VALUES (1, '', ?)",
-            (now(),),
-        )
-        connection.commit()
-        content = ""
-        updated_at = now()
-    else:
-        content = note["content"]
-        updated_at = note["updated_at"]
+def private_notepad():
     if request.method == "POST":
         content = request.form.get("content", "")
+        connection = db()
         connection.execute(
-            "UPDATE private_notes SET content = ?, updated_at = ? WHERE id = 1",
-            (content, now()),
+            "UPDATE private_notepad SET content = ?, updated_at = ?, updated_by = ? WHERE id = 1",
+            (content, now(), session.get("staff_username", "26-0054")),
         )
-        connection.commit()
+        durable_commit(connection)
         connection.close()
-        audit("superadmin_private_note_saved", "private_notepad")
+        audit("private_notepad_saved", "superadmin")
         flash("Private note saved.", "success")
-        return redirect(url_for("superadmin_notepad"))
+        return redirect(url_for("private_notepad"))
+    connection = db()
+    note = connection.execute("SELECT content, updated_at, updated_by FROM private_notepad WHERE id = 1").fetchone()
     connection.close()
+    content = note["content"] if note else ""
+    updated_at = note["updated_at"] if note else ""
+    updated_by = note["updated_by"] if note else ""
     body = f"""
-    <section class="super-panel super-panel-hero">
-        <div class="super-badge">SUPER ADMIN ONLY</div>
+    <section class="hero">
         <h1>📝 Private Notepad</h1>
-        <p>Write anything you need here. This page is restricted to the Super Admin account.</p>
+        <p><strong>SUPER ADMIN ONLY</strong></p>
+        <p class="small">This note is restricted to the Super Admin account and is stored in the court database.</p>
     </section>
-    <section class="card private-note-card">
-        <div class="private-note-header">
-            <div>
-                <h2>Private Notes</h2>
-                <p class="small">Only Super Admin can open or edit this note.</p>
-            </div>
-            <span class="status">PRIVATE</span>
-        </div>
+    <section class="card" style="max-width:1000px;margin:0 auto">
         <form method="post" autocomplete="off">
-            <textarea name="content" class="private-notepad" placeholder="Write anything you want here...">{esc(content)}</textarea>
-            <div class="private-note-footer">
-                <span class="small">Last saved: {esc(updated_at)}</span>
+            <textarea name="content" style="min-height:480px;width:100%;resize:vertical" placeholder="Write anything here...">{esc(content)}</textarea>
+            <div class="actions" style="justify-content:center">
                 <button type="submit">💾 Save Private Note</button>
+                <a class="button secondary" href="{url_for('superadmin_dashboard')}">Back to Super Admin</a>
             </div>
         </form>
-    </section>
-    <section class="card centered">
-        <h3>🔐 Privacy</h3>
-        <p class="small">Regular staff and the normal Admin interface have no route, menu item, or dashboard card for this notepad.</p>
+        <p class="small center">Last saved: {esc(updated_at)} by {esc(updated_by or '—')}</p>
     </section>
     """
     return render_page("Private Notepad", body, staff_page=True)
@@ -2638,15 +2598,6 @@ def superadmin_dashboard():
     <section class="grid">
         {''.join(f'<div class="card stat"><span class="stat-number">{value}</span>{label}</div>' for label, value in [("Staff Accounts", counts["staff"]),("Cases", counts["cases"]),("Hearings", counts["hearings"]),("Announcements", counts["notices"]),("Legal Resources", counts["laws"]),("Requirements", counts["requirements"]),("Audit Entries", counts["audit"])])}
     </section>
-    <section class="card super-quick-panel">
-        <h2>Super Admin Tools</h2>
-        <div class="super-tool-grid">
-            <a class="super-tool" href="{url_for('superadmin_notepad')}"><span class="tool-icon">📝</span><strong>Private Notepad</strong><span class="small">Private notes visible only to Super Admin</span></a>
-            <a class="super-tool" href="{url_for('staff_accounts')}"><span class="tool-icon">👥</span><strong>Account Control</strong><span class="small">Review administrator and staff accounts</span></a>
-            <a class="super-tool" href="{url_for('staff_cases')}"><span class="tool-icon">⚖️</span><strong>Case Control</strong><span class="small">Open and manage case information</span></a>
-            <a class="super-tool" href="{url_for('staff_calendar')}"><span class="tool-icon">📅</span><strong>Tuesday Calendar</strong><span class="small">Manage the published schedule</span></a>
-        </div>
-    </section>
     <section class="card table-wrap">
         <h2 class="center">Registered Accounts</h2>
         <table><thead><tr><th>Username</th><th>Role</th><th>Status</th></tr></thead><tbody>{staff_table or '<tr><td colspan="3">None</td></tr>'}</tbody></table>
@@ -2655,6 +2606,11 @@ def superadmin_dashboard():
         <h2 class="center">Case Overview</h2>
         <table><thead><tr><th>Case Number</th><th>Plaintiff</th><th>Defendant</th><th>Status</th><th>Updated</th></tr></thead><tbody>{case_table or '<tr><td colspan="5">No cases</td></tr>'}</tbody></table>
     </section>
+    <section class="card centered">
+        <h2>🔒 Private Super Admin Area</h2>
+        <p>This area is unavailable to normal Admin and Staff accounts.</p>
+        <p><a class="button" href="{url_for('private_notepad')}">📝 Open Private Notepad</a></p>
+    </section>
     <section class="card table-wrap">
         <h2 class="center">Recent Audit Activity</h2>
         <table><thead><tr><th>User</th><th>Action</th><th>Target</th><th>Time</th></tr></thead><tbody>{audit_table or '<tr><td colspan="4">No audit activity</td></tr>'}</tbody></table>
@@ -2662,7 +2618,6 @@ def superadmin_dashboard():
     """
     return render_page("Super Admin", body, staff_page=True)
 
-# Staff account administration
 @app.route("/staff/accounts")
 @admin_required
 def staff_accounts():
@@ -2752,7 +2707,7 @@ def add_staff():
                 now(),
             ),
         )
-        connection.commit()
+        durable_commit(connection)
     except sqlite3.IntegrityError:
         connection.close()
         flash("That username or email already exists.", "danger")
@@ -2780,7 +2735,7 @@ def toggle_staff(staff_id):
         "UPDATE staff SET active = ? WHERE id = ?",
         (0 if row["active"] else 1, staff_id),
     )
-    connection.commit()
+    durable_commit(connection)
     connection.close()
     return redirect(url_for("staff_accounts"))
 @app.post("/staff/accounts/<int:staff_id>/delete")
@@ -2802,7 +2757,7 @@ def delete_staff(staff_id):
         "DELETE FROM staff WHERE id = ?",
         (staff_id,),
     )
-    connection.commit()
+    durable_commit(connection)
     connection.close()
     flash("Staff account deleted.", "success")
     return redirect(url_for("staff_accounts"))
@@ -2820,7 +2775,17 @@ def change_theme(theme):
     return redirect(request.referrer or url_for("home"))
 @app.route("/health")
 def health():
-    return {"status": "ok", "service": COURT_NAME}
+    return {
+        "status": "ok",
+        "service": COURT_NAME,
+        "mongodb": {
+            "configured": bool(MONGODB_URI),
+            "connected": bool(MONGO_READY),
+            "database": MONGODB_DB_NAME if MONGODB_URI else "",
+            "last_sync": MONGO_LAST_SYNC,
+            "error": MONGO_ERROR,
+        },
+    }
 @app.after_request
 def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
@@ -2860,7 +2825,6 @@ def error_413(error):
     </section>
     """
     return render_page("413", body, staff_page=bool(session.get("staff_logged_in"))), 413
-# Local development entry point
 if __name__ == "__main__":
     app.run(
         host="0.0.0.0",
