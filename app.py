@@ -307,7 +307,7 @@ def sync_sqlite_to_mongodb():
         return False
     try:
         for old in MONGO_STATE.find({"filename": "mctc_court.db"}):
-            MONGO_STATE.delete(old["_id"])
+            MONGO_STATE.delete(old._id)
         data = DB_PATH.read_bytes()
         with MONGO_STATE.open_upload_stream(
             "mctc_court.db",
