@@ -590,7 +590,7 @@ def initialize_database():
             "INSERT INTO private_notepad (id, content, updated_at, updated_by) VALUES (1, '', ?, ?)",
             (now(), "system"),
         )
-    durable_commit(connection)
+    connection.commit()
     connection.close()
 configure_mongodb()
 initialize_database()
