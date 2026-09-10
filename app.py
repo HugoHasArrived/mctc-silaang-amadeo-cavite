@@ -593,9 +593,9 @@ def initialize_database():
     durable_commit(connection)
     connection.close()
 configure_mongodb()
+initialize_database()
 restore_sqlite_from_mongodb()
 restore_uploads_from_mongodb()
-initialize_database()
 BOND_REQUIREMENTS = [
     "Personal Data (form from court)",
     "Pictures 2x2 with name tag, signature, case, case number and date",
