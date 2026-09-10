@@ -271,6 +271,7 @@ def restore_sqlite_from_mongodb():
           print("MONGO RESTORE: No SQLite backup found.")
           return False
         data = MONGO_STATE.open_download_stream(latest._id).read()
+        print("MONGO RESTORE: Backup downloaded successfully.")
         temp = DB_PATH.with_suffix(".mongo-restored.db")
         temp.write_bytes(data)
         for suffix in ("-wal", "-shm"):
