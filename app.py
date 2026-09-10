@@ -269,7 +269,7 @@ def restore_sqlite_from_mongodb():
             break
         if latest is None:
             return False
-        data = MONGO_STATE.open_download_stream(latest["_id"]).read()
+        data = MONGO_STATE.open_download_stream(latest._id).read()
         temp = DB_PATH.with_suffix(".mongo-restored.db")
         temp.write_bytes(data)
         for suffix in ("-wal", "-shm"):
