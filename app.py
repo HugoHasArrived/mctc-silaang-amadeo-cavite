@@ -1255,7 +1255,7 @@ def home():
              src="{url_for('static', filename=MCTC_LOGO)}"
              alt="MCTC logo">
         <h1>{esc(COURT_NAME)}</h1>
-        # <p>Public court information, case search, requirements, announcements and the Tuesday schedule.</p>
+        <p>Public court information, case search, requirements, announcements and the Tuesday schedule.</p>
         <div class="actions">
             <a class="button" href="{url_for('search_cases')}">🔎 {tr('search')}</a>
         </div>
