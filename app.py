@@ -597,21 +597,18 @@ initialize_database()
 restore_sqlite_from_mongodb()
 restore_uploads_from_mongodb()
 BOND_REQUIREMENTS = [
-    "1. Personal Data (form from court)",
-    "2. Pictures 2x2 with name tag, signature, case, case number and date",
-    "2.1 Front - 4 pcs.",
-    "2.2 Left side - 4 pcs.",
-    "2.3 Right side - 4 pcs.",
-    "3. Barangay Clearance attesting the real name and residence of the accused",
-    "4. Certification attesting the length of residency",
-    "5. House Sketch - dated, certified, signed and sealed by the barangay captain",
-    "6. Certificate of Detention, if detained or arrested, or Affidavit of Voluntary Surrender, if not detained",
-    "7. Fingerprint (piano)",
-    "8. Specimen signature, at least 5 signatures",
-    "9. Affidavit of Undertaking",
-    "10. Valid government-issued identification card, original and xerox copy (back-to-back)",
-    "11. Original Copy of PSA Birth Certificate with attached receipt",
-    "12. If married, female, original copy of PSA Marriage Certificate with attached receipt",
+    "Personal Data (form from court)",
+    "Pictures 2x2 with name tag, signature, case, case number and date (4 front, left, and right pictures)",
+    "Barangay Clearance attesting the real name and residence of the accused",
+    "Certification attesting the length of residency",
+    "House Sketch - dated, certified, signed and sealed by the barangay captain",
+    "Certificate of Detention, if detained or arrested, or Affidavit of Voluntary Surrender, if not detained",
+    "Fingerprint (piano)",
+    "Specimen signature, at least 5 signatures",
+    "Affidavit of Undertaking",
+    "Valid government-issued identification card, original and xerox copy (back-to-back)",
+    "Original Copy of PSA Birth Certificate with attached receipt",
+    "If married, female, original copy of PSA Marriage Certificate with attached receipt",
 ]
 def audit(action, target=""):
     try:
