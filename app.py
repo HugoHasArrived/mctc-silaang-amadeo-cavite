@@ -882,7 +882,7 @@ a:hover { text-decoration: underline; }
 }
 .staff-quick-row.bottom {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 280px));
+    grid-template-columns: repeat(3, minmax(0, 280px));
     justify-content: center;
     gap: 16px;
     align-items: stretch;
@@ -2026,9 +2026,6 @@ def staff_dashboard():
             {'<a class="card centered" href="' + url_for('staff_accounts') + '"><h3>👥 ' + tr('staff_accounts') + '</h3><p>Add and manage staff accounts.</p></a>' if session.get('staff_role') in {'admin','superadmin'} else ''}
             <a class="card centered" href="{url_for('change_password')}">
                 <h3>🔑 Change Password</h3><p>Update your staff account password.</p>
-            </a>
-            <a class="card centered" href="{url_for('jhr')}">
-                <h3>📚 JHR</h3><p>View JHR information.</p>
             </a>
         </div>
     </section>
