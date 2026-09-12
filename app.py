@@ -16,6 +16,7 @@ from flask import (
     redirect,
     render_template_string,
     request,
+    send_file,
     send_from_directory,
     session,
     url_for,
@@ -293,11 +294,16 @@ def restore_uploads_from_mongodb():
         return
     try:
         for item in MONGO_UPLOADS.find({"metadata.kind": "application-upload"}):
-            local_name = (item.get("metadata") or {}).get("local_name")
+            local_name = (item.metadata or {}).get("local_name")
             if not local_name:
                 continue
-            destination = UPLOAD_DIR / secure_filename(local_name)
-            data = MONGO_UPLOADS.open_download_stream(item["_id"]).read()
+            safe_name = secure_filename(local_name)
+            if not safe_name:
+                continue
+            destination = UPLOAD_DIR / safe_name
+            if destination.exists():
+                continue
+            data = MONGO_UPLOADS.open_download_stream(item._id).read()
             destination.write_bytes(data)
     except Exception as error:
         global MONGO_ERROR
@@ -377,7 +383,7 @@ def delete_uploaded_file_from_mongodb(local_name):
         return
     try:
         for item in MONGO_UPLOADS.find({"metadata.local_name": local_name}):
-            MONGO_UPLOADS.delete(item["_id"])
+            MONGO_UPLOADS.delete(item._id)
     except Exception as error:
         global MONGO_ERROR
         MONGO_ERROR = f"File delete sync failed: {type(error).__name__}: {error}"
@@ -1547,7 +1553,52 @@ def public_calendar():
     return render_page(tr("calendar"), body)
 @app.route("/uploads/<path:filename>")
 def uploaded_file(filename):
-    return send_from_directory(UPLOAD_DIR, filename)
+    safe_name = secure_filename(filename)
+    if not safe_name:
+        abort(404)
+
+    local_path = UPLOAD_DIR / safe_name
+
+    if local_path.exists() and local_path.is_file():
+        return send_from_directory(UPLOAD_DIR, safe_name)
+
+    if MONGO_READY and MONGO_UPLOADS is not None:
+        try:
+            for item in MONGO_UPLOADS.find({
+                "metadata.kind": "application-upload",
+                "metadata.local_name": safe_name,
+            }).sort("uploadDate", -1).limit(1):
+                data = MONGO_UPLOADS.open_download_stream(item._id).read()
+                metadata = item.metadata or {}
+                original_name = metadata.get("original_name") or safe_name
+                extension = Path(safe_name).suffix.lower()
+                mime_types = {
+                    ".pdf": "application/pdf",
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".webp": "image/webp",
+                    ".gif": "image/gif",
+                    ".txt": "text/plain",
+                    ".doc": "application/msword",
+                    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    ".xls": "application/vnd.ms-excel",
+                    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                }
+                return send_file(
+                    io.BytesIO(data),
+                    mimetype=mime_types.get(extension, "application/octet-stream"),
+                    as_attachment=False,
+                    download_name=original_name,
+                )
+        except Exception as error:
+            print(
+                "MongoDB file retrieval failed:",
+                type(error).__name__,
+                error,
+            )
+
+    abort(404)
 @app.route("/staff/login", methods=["GET", "POST"])
 def staff_login():
     if session.get("staff_logged_in"):
