@@ -874,6 +874,39 @@ a:hover { text-decoration: underline; }
 .staff-interface .grid {
     align-items: stretch;
 }
+.staff-quick-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+    align-items: stretch;
+}
+.staff-quick-row.bottom {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 280px));
+    justify-content: center;
+    gap: 16px;
+    align-items: stretch;
+    margin-top: 16px;
+}
+.staff-quick-row.bottom > .card {
+    width: 100%;
+}
+@media (max-width: 1050px) {
+    .staff-quick-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+    .staff-quick-row.bottom {
+        grid-template-columns: repeat(2, minmax(0, 280px));
+    }
+}
+@media (max-width: 650px) {
+    .staff-quick-row {
+        grid-template-columns: 1fr;
+    }
+    .staff-quick-row.bottom {
+        grid-template-columns: 1fr;
+    }
+}
 .hero {
     margin: 12px 0 24px;
     padding: 45px 22px;
@@ -1971,7 +2004,7 @@ def staff_dashboard():
     </section>
     <section class="card">
         <h2 class="center">Quick Actions</h2>
-        <div class="grid">
+        <div class="staff-quick-row">
             <a class="card centered" href="{url_for('staff_cases')}">
                 <h3>📋 {tr('cases')}</h3><p>Add, edit and delete cases.</p>
             </a>
@@ -1984,12 +2017,17 @@ def staff_dashboard():
             <a class="card centered" href="{url_for('staff_laws')}">
                 <h3>⚖️ {tr('laws')}</h3><p>Manage legal resources.</p>
             </a>
+        </div>
+        <div class="staff-quick-row bottom">
             <a class="card centered" href="{url_for('staff_notices')}">
                 <h3>📢 {tr('notices')}</h3><p>Publish announcements and attachments.</p>
             </a>
             {'<a class="card centered" href="' + url_for('staff_accounts') + '"><h3>👥 ' + tr('staff_accounts') + '</h3><p>Add and manage staff accounts.</p></a>' if session.get('staff_role') in {'admin','superadmin'} else ''}
             <a class="card centered" href="{url_for('change_password')}">
                 <h3>🔑 Change Password</h3><p>Update your staff account password.</p>
+            </a>
+            <a class="card centered" href="{url_for('jhr')}">
+                <h3>📚 JHR</h3><p>View JHR information.</p>
             </a>
         </div>
     </section>
