@@ -923,6 +923,12 @@ a:hover { text-decoration: underline; }
 .home-feature-grid .home-feature-card {
     margin: 0;
 }
+.home-feature-row-center {
+    grid-template-columns: repeat(2, minmax(245px, 1fr));
+    max-width: 760px;
+    margin-left: auto;
+    margin-right: auto;
+}
 .home-news-section {
     margin-top: 0;
 }
@@ -1330,6 +1336,8 @@ def home():
             <p>View the publicly available posting bail bond and clearance information.</p>
             <a class="button" href="{url_for('requirements')}">{tr('view')}</a>
         </div>
+    </section>
+    <section class="grid home-feature-grid home-feature-row-center">
         <div class="card centered home-feature-card">
             <h2>⚖️ {tr('laws')}</h2>
             <p>View publicly available laws, decisions and rules.</p>
@@ -2278,6 +2286,7 @@ def staff_hearing(case_id):
         "Judgment",
         "Promulgation",
         "Hearing",
+        "Clarificatory Hearing",
         "Other",
     ]
     statuses = [
@@ -2285,7 +2294,6 @@ def staff_hearing(case_id):
         "Ongoing",
         "Completed",
         "Reset",
-        "Postponed",
         "Cancelled",
     ]
     nature_options = "".join(
