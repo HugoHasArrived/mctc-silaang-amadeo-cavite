@@ -69,7 +69,7 @@ COURT_SHORT_NAME = "MCTC Silang-Amadeo"
 COURT_ADDRESS = "PNP Bldg, Plaza Libertad, Poblacion 2, Silang, Cavite"
 COURT_PHONE = "09284621305"
 COURT_EMAIL = "mctc2sad000@judiciary.gov.ph"
-COURT_OFFICE_HOURS = "8:00 AM - 5:00 PM"
+COURT_OFFICE_HOURS = "Monday to Friday, 8:00 AM - 5:00 PM"
 MCTC_LOGO = "image0.png"
 MONGODB_URI = os.environ.get("MONGODB_URI", "").strip()
 MONGODB_DB_NAME = os.environ.get("MONGODB_DB", "mctc_silang_amadeo").strip() or "mctc_silang_amadeo"
@@ -1194,6 +1194,7 @@ def render_page(title, body, staff_page=False):
         nav.append(f"<a href='{url_for('public_calendar')}'>{tr('calendar')}</a>")
         nav.append(f"<a href='{url_for('requirements')}'>{tr('requirements')}</a>")
         nav.append(f"<a href='{url_for('public_laws')}'>{tr('laws')}</a>")
+        nav.append(f"<a href='{url_for('jhr')}'>JHR</a>")
         nav.append(f"<a href='{url_for('news')}'>{tr('news')}</a>")
         nav.append(f"<a href='{url_for('contact')}'>{tr('contact')}</a>")
         nav.append(
@@ -1388,6 +1389,15 @@ def contact():
     </section>
     """
     return render_page(tr("contact"), body)
+@app.route("/jhr")
+def jhr():
+    body = f"""
+    <section class="card centered">
+        <h1>JHR</h1>
+        <p>JHR information page.</p>
+    </section>
+    """
+    return render_page("JHR", body)
 @app.route("/news")
 def news():
     connection = db()
@@ -1527,7 +1537,7 @@ def search_cases():
         <form method="get" action="{url_for('search_cases')}">
             <label>Civil Case Number</label>
             <input name="civil_case_number" value="{esc(civil_case_number)}" autocomplete="off" placeholder="CC... or SCC..." required>
-            <label>Plaintiff's Last Name</label>
+            <label>Plaintiff's Last Name/Corporation Name</label>
             <input name="civil_name" value="{esc(civil_name)}" autocomplete="off" required style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()">
             <button type="submit">🔎 Search Civil Case</button>
         </form>
@@ -1961,7 +1971,7 @@ def staff_dashboard():
     </section>
     <section class="card">
         <h2 class="center">Quick Actions</h2>
-        <div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr));">
+        <div class="grid">
             <a class="card centered" href="{url_for('staff_cases')}">
                 <h3>📋 {tr('cases')}</h3><p>Add, edit and delete cases.</p>
             </a>
@@ -1974,8 +1984,6 @@ def staff_dashboard():
             <a class="card centered" href="{url_for('staff_laws')}">
                 <h3>⚖️ {tr('laws')}</h3><p>Manage legal resources.</p>
             </a>
-        </div>
-        <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));max-width:1020px;margin:28px auto 0;">
             <a class="card centered" href="{url_for('staff_notices')}">
                 <h3>📢 {tr('notices')}</h3><p>Publish announcements and attachments.</p>
             </a>
@@ -1994,24 +2002,45 @@ def staff_dashboard():
 @app.route("/staff/cases")
 @staff_required
 def staff_cases():
+    query = request.args.get("q", "").strip()
     connection = db()
-    criminal_rows = connection.execute("SELECT * FROM cases WHERE case_category = 'Criminal' ORDER BY case_number ASC").fetchall()
-    civil_rows = connection.execute("SELECT * FROM cases WHERE case_category = 'Civil' ORDER BY case_number ASC").fetchall()
+    if query:
+        like = f"%{query}%"
+        criminal_rows = connection.execute(
+            """
+            SELECT * FROM cases
+            WHERE case_category = 'Criminal'
+              AND (case_number LIKE ? OR plaintiff_name LIKE ? OR defendant_name LIKE ?
+                   OR parties LIKE ? OR case_type LIKE ? OR status LIKE ?)
+            ORDER BY updated_at DESC
+            """,
+            (like, like, like, like, like, like),
+        ).fetchall()
+        civil_rows = connection.execute(
+            """
+            SELECT * FROM cases
+            WHERE case_category = 'Civil'
+              AND (case_number LIKE ? OR plaintiff_name LIKE ? OR defendant_name LIKE ?
+                   OR parties LIKE ? OR case_type LIKE ? OR status LIKE ?)
+            ORDER BY updated_at DESC
+            """,
+            (like, like, like, like, like, like),
+        ).fetchall()
+    else:
+        criminal_rows = connection.execute("SELECT * FROM cases WHERE case_category = 'Criminal' ORDER BY updated_at DESC").fetchall()
+        civil_rows = connection.execute("SELECT * FROM cases WHERE case_category = 'Civil' ORDER BY updated_at DESC").fetchall()
     connection.close()
 
     def rows_html(rows, criminal):
         if not rows:
-            return f"<tr><td colspan='{5 if criminal else 5}' class='empty'>No {'criminal' if criminal else 'civil'} cases.</td></tr>"
+            return f"<tr><td colspan='{6 if criminal else 5}' class='empty'>No {'criminal' if criminal else 'civil'} cases.</td></tr>"
         out = ""
         for row in rows:
-            party_cell = (
-                f"<td>{esc(row['defendant_name'])}</td>"
-                if criminal
-                else f"<td>{esc(row['plaintiff_name'])}</td>"
-            )
+            party_cell = f"<td>{esc(row['defendant_name'])}</td>" if criminal else ""
             out += f"""
             <tr>
                 <td><strong>{esc(row['case_number'])}</strong></td>
+                <td>{esc(row['plaintiff_name'])}</td>
                 {party_cell}
                 <td>{esc(row['case_type'])}</td>
                 <td><span class="status">{esc(row['status'])}</span></td>
@@ -2027,8 +2056,19 @@ def staff_cases():
         return out
 
     body = f"""
-    <section class="card centered"><h1>📋 {tr('cases')}</h1><a class="button" href="{url_for('staff_add_case')}">➕ {tr('add')}</a></section>
-    <section class="card"><h2>⚖️ {tr('criminal')} Cases</h2><div class="table-wrap"><table><thead><tr><th>{tr('case_number')}</th><th>{tr('accused')}</th><th>{tr('case_type')}</th><th>{tr('status')}</th><th>Actions</th></tr></thead><tbody>{rows_html(criminal_rows, True)}</tbody></table></div></section>
+    <section class="card centered">
+        <h1>📋 {tr('cases')}</h1>
+        <form method="get" action="{url_for('staff_cases')}" style="max-width: 700px; margin: 0 auto 15px;">
+            <label>Search Cases</label>
+            <input name="q" value="{esc(query)}" placeholder="Case number, plaintiff, or accused" autocomplete="off">
+            <div class="actions">
+                <button type="submit">🔎 Search</button>
+                {('<a class="button secondary" href="' + url_for('staff_cases') + '">Clear</a>') if query else ''}
+            </div>
+        </form>
+        <a class="button" href="{url_for('staff_add_case')}">➕ {tr('add')}</a>
+    </section>
+    <section class="card"><h2>⚖️ {tr('criminal')} Cases</h2><div class="table-wrap"><table><thead><tr><th>{tr('case_number')}</th><th>{tr('plaintiff')}</th><th>{tr('accused')}</th><th>{tr('case_type')}</th><th>{tr('status')}</th><th>Actions</th></tr></thead><tbody>{rows_html(criminal_rows, True)}</tbody></table></div></section>
     <section class="card"><h2>⚖️ {tr('civil')} Cases</h2><div class="table-wrap"><table><thead><tr><th>{tr('case_number')}</th><th>{tr('plaintiff')}</th><th>{tr('case_type')}</th><th>{tr('status')}</th><th>Actions</th></tr></thead><tbody>{rows_html(civil_rows, False)}</tbody></table></div></section>
     """
     return render_page(tr("cases"), body, staff_page=True)
@@ -2037,7 +2077,7 @@ def staff_cases():
 def staff_add_case():
     if request.method == "POST":
         form = request.form
-        case_number = form.get("case_number", "").strip().upper()
+        case_number = form.get("case_number", "").strip()
         category = form.get("case_category", "Civil").strip().title()
         if category not in {"Criminal", "Civil"}:
             category = "Civil"
@@ -2143,99 +2183,51 @@ def staff_edit_case(case_id):
     connection.close()
     if case is None:
         abort(404)
-
     if request.method == "POST":
         form = request.form
-        case_number = form.get("case_number", "").strip().upper()
         category = form.get("case_category", "Civil").strip().title()
-        if category not in {"Criminal", "Civil"}:
-            category = "Civil"
-
+        if category not in {"Criminal", "Civil"}: category = "Civil"
         plaintiff = form.get("plaintiff", "").strip().upper() if category == "Civil" else ""
         defendant = form.get("defendant", "").strip() if category == "Criminal" else ""
-
-        if not case_number:
-            flash("Case number is required.", "danger")
+        if category == "Civil" and not plaintiff:
+            flash("Plaintiff name is required for civil cases.", "danger")
             return redirect(url_for("staff_edit_case", case_id=case_id))
-
-        if category == "Civil":
-            if not (case_number.startswith("CC") or case_number.startswith("SCC")):
-                flash("The civil case number must start with CC or SCC.", "danger")
-                return redirect(url_for("staff_edit_case", case_id=case_id))
-            if not plaintiff:
-                flash("Plaintiff's last name or corporation name is required for civil cases.", "danger")
-                return redirect(url_for("staff_edit_case", case_id=case_id))
-        else:
-            if not (case_number.startswith("AC") or (case_number.startswith("SC") and not case_number.startswith("SCC"))):
+        if category == "Criminal" and not defendant:
+            flash("The accused's last name is required for criminal cases.", "danger")
+            return redirect(url_for("staff_edit_case", case_id=case_id))
+        upper_case_number = case["case_number"].upper()
+        if category == "Criminal":
+            if not (upper_case_number.startswith("AC") or (upper_case_number.startswith("SC") and not upper_case_number.startswith("SCC"))):
                 flash("The criminal case number must start with AC or SC.", "danger")
                 return redirect(url_for("staff_edit_case", case_id=case_id))
-            if not defendant:
-                flash("The accused's last name is required for criminal cases.", "danger")
+        else:
+            if not (upper_case_number.startswith("CC") or upper_case_number.startswith("SCC")):
+                flash("The civil case number must start with CC or SCC. AC is not allowed for civil cases.", "danger")
                 return redirect(url_for("staff_edit_case", case_id=case_id))
-
         connection = db()
-        duplicate = connection.execute(
-            "SELECT id FROM cases WHERE lower(case_number) = lower(?) AND id <> ? LIMIT 1",
-            (case_number, case_id),
-        ).fetchone()
-        if duplicate:
-            connection.close()
-            flash("That case number already exists.", "danger")
-            return redirect(url_for("staff_edit_case", case_id=case_id))
-
-        connection.execute(
-            """UPDATE cases
-               SET case_number = ?, plaintiff_name = ?, defendant_name = ?, parties = ?,
-                   case_category = ?, case_type = ?, public_description = ?, updated_at = ?
-             WHERE id = ?""",
-            (
-                case_number,
-                plaintiff,
-                defendant,
-                form.get("parties", "").strip(),
-                category,
-                form.get("case_type", "").strip(),
-                form.get("public_description", "").strip(),
-                now(),
-                case_id,
-            ),
-        )
+        connection.execute("UPDATE cases SET plaintiff_name=?, defendant_name=?, parties=?, case_category=?, case_type=?, status='Active', public_description=?, updated_at=? WHERE id=?", (plaintiff, defendant, form.get("parties", "").strip(), category, form.get("case_type", "").strip(), form.get("public_description", "").strip(), now(), case_id))
         durable_commit(connection)
         connection.close()
-        audit("case_updated", case_number)
+        audit("case_updated", case["case_number"])
         flash("Case updated successfully.", "success")
         return redirect(url_for("staff_cases"))
-
     criminal = case["case_category"] == "Criminal"
-    case_number_value = case["case_number"]
     body = f"""
     <section class="card"><h1 class="center">✏️ {tr('edit')}</h1>
         <form method="post">
-            <label>{tr('case_category')}</label>
-            <select name="case_category" id="case_category" onchange="toggleCaseFields()">
-                <option value="Civil" {'selected' if not criminal else ''}>{tr('civil')}</option>
-                <option value="Criminal" {'selected' if criminal else ''}>{tr('criminal')}</option>
-            </select>
-
-            <label>{tr('case_number')}</label>
-            <input name="case_number" id="case-number-input" value="{esc(case_number_value)}" placeholder="{'AC... or SC...' if criminal else 'CC... or SCC...'}" required>
-
+            <label>{tr('case_category')}</label><select name="case_category" id="case_category" onchange="toggleAccused()"><option value="Civil" {'selected' if not criminal else ''}>{tr('civil')}</option><option value="Criminal" {'selected' if criminal else ''}>{tr('criminal')}</option></select>
+            <label>{tr('case_number')}</label><input value="{esc(case['case_number'])}" disabled>
             <div id="plaintiff-field" style="display:{'none' if criminal else 'block'}">
-                <label>Plaintiff's Last Name / Corporation Name</label>
-                <input name="plaintiff" id="plaintiff-input" style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()" value="{esc(case['plaintiff_name'])}" {'required' if not criminal else ''}>
+                <label>Plaintiff's Last Name / Corporation Name</label><input name="plaintiff" id="plaintiff-input" style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()" value="{esc(case['plaintiff_name'])}" {'required' if not criminal else ''}>
             </div>
-
             <div id="defendant-field" style="display:{'block' if criminal else 'none'}">
-                <label>Accused's Last Name</label>
-                <input name="defendant" id="defendant-input" value="{esc(case['defendant_name'])}" {'required' if criminal else ''}>
+                <label>Accused's Last Name</label><input name="defendant" id="defendant-input" value="{esc(case['defendant_name'])}" {'required' if criminal else ''}>
             </div>
-
             <label>{tr('parties')}</label><input name="parties" value="{esc(case['parties'])}">
             <label>{tr('case_type')}</label><input name="case_type" value="{esc(case['case_type'])}">
             <label>{tr('description')}</label><textarea name="public_description">{esc(case['public_description'])}</textarea>
             <button type="submit">{tr('save')}</button>
         </form>
-
         <script>
         function toggleCaseFields() {{
             const criminal = document.getElementById('case_category').value === 'Criminal';
@@ -2243,20 +2235,11 @@ def staff_edit_case(case_id):
             const plaintiffInput = document.getElementById('plaintiff-input');
             const defendantField = document.getElementById('defendant-field');
             const defendantInput = document.getElementById('defendant-input');
-            const caseNumberInput = document.getElementById('case-number-input');
 
             plaintiffField.style.display = criminal ? 'none' : 'block';
             defendantField.style.display = criminal ? 'block' : 'none';
             plaintiffInput.required = !criminal;
             defendantInput.required = criminal;
-            caseNumberInput.placeholder = criminal ? 'AC... or SC...' : 'CC... or SCC...';
-
-            if (criminal) {{
-                plaintiffInput.value = '';
-            }} else {{
-                defendantInput.value = '';
-                plaintiffInput.value = plaintiffInput.value.toUpperCase();
-            }}
         }}
         toggleCaseFields();
         </script>
