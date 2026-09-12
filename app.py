@@ -128,7 +128,7 @@ T = {
         "open": "Open",
         "upload": "Upload",
         "case_number": "Case Number",
-        "plaintiff": "Plaintiff's Last Name / First-Named Plaintiff / Corporation Name",
+        "plaintiff": "Plaintiff's Last Name / Corporation Name",
         "defendant": "Defendant / Party",
         "accused": "Accused Last Name / First-Named Accused",
         "case_category": "Case Category",
@@ -1481,6 +1481,7 @@ def search_cases():
     body = f"""
     <section class="card centered">
         <h1>🔎 {tr('search')}</h1>
+        <p><strong>Search case for case status; if none is available, call the court.</strong></p>
         <p>Criminal and civil cases have separate search forms.</p>
     </section>
 
@@ -2073,7 +2074,7 @@ def staff_add_case():
             <input name="case_number" placeholder="AC... or SC..." required>
 
             <div id="plaintiff-field">
-                <label>Plaintiff's Last Name / First-Named Plaintiff / Corporation Name</label>
+                <label>Plaintiff's Last Name / Corporation Name</label>
                 <input name="plaintiff" id="plaintiff-input" style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()">
             </div>
 
@@ -2156,10 +2157,10 @@ def staff_edit_case(case_id):
             <label>{tr('case_category')}</label><select name="case_category" id="case_category" onchange="toggleAccused()"><option value="Civil" {'selected' if not criminal else ''}>{tr('civil')}</option><option value="Criminal" {'selected' if criminal else ''}>{tr('criminal')}</option></select>
             <label>{tr('case_number')}</label><input value="{esc(case['case_number'])}" disabled>
             <div id="plaintiff-field" style="display:{'none' if criminal else 'block'}">
-                <label>Plaintiff's Last Name / First-Named Plaintiff / Corporation Name</label><input name="plaintiff" id="plaintiff-input" style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()" value="{esc(case['plaintiff_name'])}" {'required' if not criminal else ''}>
+                <label>Plaintiff's Last Name / Corporation Name</label><input name="plaintiff" id="plaintiff-input" style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()" value="{esc(case['plaintiff_name'])}" {'required' if not criminal else ''}>
             </div>
             <div id="defendant-field" style="display:{'block' if criminal else 'none'}">
-                <label>Accused's Last Name / First-Named Accused</label><input name="defendant" id="defendant-input" value="{esc(case['defendant_name'])}" {'required' if criminal else ''}>
+                <label>Accused's Last Name</label><input name="defendant" id="defendant-input" value="{esc(case['defendant_name'])}" {'required' if criminal else ''}>
             </div>
             <label>{tr('parties')}</label><input name="parties" value="{esc(case['parties'])}">
             <label>{tr('case_type')}</label><input name="case_type" value="{esc(case['case_type'])}">
