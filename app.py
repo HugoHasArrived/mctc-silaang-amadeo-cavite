@@ -128,7 +128,7 @@ T = {
         "open": "Open",
         "upload": "Upload",
         "case_number": "Case Number",
-        "plaintiff": "Plaintiff Last Name / Corporation Name",
+        "plaintiff": "Plaintiff's Last Name / First-Named Plaintiff / Corporation Name",
         "defendant": "Defendant / Party",
         "accused": "Accused Last Name / First-Named Accused",
         "case_category": "Case Category",
@@ -145,7 +145,7 @@ T = {
         "hearing_status": "Hearing Status",
         "remarks": "Remarks",
         "courtroom": "Courtroom",
-        "required_search": "Both the complete case number and plaintiff last name / corporation name are required.",
+        "required_search": "Enter the complete case number and the required party name.",
         "how_search": "How to Search",
         "step1": "Enter the complete case number.",
         "step2": "Enter the plaintiff's last name or corporation name.",
@@ -612,12 +612,15 @@ def initialize_database():
     connection.commit()
     connection.close()
 configure_mongodb()
-restore_sqlite_from_mongodb()
 initialize_database()
+restore_sqlite_from_mongodb()
 restore_uploads_from_mongodb()
 BOND_REQUIREMENTS = [
     "Personal Data (form from court)",
-    "Pictures 2x2 with name tag, signature, case, case number and date (4 front, left, and right pictures)",
+    "Pictures 2x2 with name tag, signature, case, case number and date",
+    "4 pcs. Front",
+    "4 pcs. Left side",
+    "4 pcs. Right side",
     "Barangay Clearance attesting the real name and residence of the accused",
     "Certification attesting the length of residency",
     "House Sketch - dated, certified, signed and sealed by the barangay captain",
@@ -628,6 +631,38 @@ BOND_REQUIREMENTS = [
     "Valid government-issued identification card, original and xerox copy (back-to-back)",
     "Original Copy of PSA Birth Certificate with attached receipt",
     "If married, female, original copy of PSA Marriage Certificate with attached receipt",
+]
+
+CLEARANCE_REQUIREMENTS = [
+    {
+        "title": "MCTC CLEARANCE - FOR EMPLOYMENT/BOARD EXAMINATION",
+        "items": [
+            "Valid Police Clearance or NBI Clearance",
+            "Latest Cedula",
+        ],
+    },
+    {
+        "title": "MCTC CLEARANCE / NO PENDING CASE CERTIFICATION",
+        "items": [
+            "Information/order/any document about the case",
+            "Authorization letter in case of processing through a representative",
+            "Valid identification card of the party and the representative",
+        ],
+    },
+    {
+        "title": "MCTC CLEARANCE/CERTIFICATION - FOR LAND-TITLING/TAX DECLARATION",
+        "items": [
+            "Original latest tax declaration",
+            "Authorization letter in case of processing through a representative",
+            "Valid identification card of the landowner and the representative",
+        ],
+    },
+]
+
+CLEARANCE_NOTES = [
+    "No cash transaction. Payment is made through GCash or bank transfer.",
+    "Amount to be paid is ₱120.00 (₱90.00 certification fee + ₱30.00 convenience fee per transaction).",
+    "First-time job seekers are exempt from paying the fee pursuant to the First Time Jobseekers Assistance Act.",
 ]
 def audit(action, target=""):
     try:
@@ -1377,7 +1412,7 @@ def search_cases():
     criminal_case_number = request.args.get("criminal_case_number", "").strip()
     criminal_name = request.args.get("criminal_name", "").strip()
     civil_case_number = request.args.get("civil_case_number", "").strip()
-    civil_name = request.args.get("civil_name", "").strip()
+    civil_name = request.args.get("civil_name", "").strip().upper()
 
     criminal_result = None
     civil_result = None
@@ -1430,7 +1465,7 @@ def search_cases():
                 criminal_result = None
                 flash("The criminal case number must start with AC or SC.", "danger")
             elif criminal_result is None:
-                flash("No matching criminal case was found.", "warning")
+                flash("No matching criminal case was found. Please call the court.", "warning")
 
     if civil_case_number or civil_name:
         if not civil_case_number or not civil_name:
@@ -1441,7 +1476,7 @@ def search_cases():
                 civil_result = None
                 flash("The civil case number must start with SC or SCC. AC is not allowed for civil cases.", "danger")
             elif civil_result is None:
-                flash("No matching civil case was found.", "warning")
+                flash("No matching civil case was found. Please call the court.", "warning")
 
     body = f"""
     <section class="card centered">
@@ -1471,7 +1506,6 @@ def search_cases():
         <div class="notice">
             <ol>
                 <li>Enter a case number beginning with <strong>SC</strong> or <strong>SCC</strong>.</li>
-                <li><strong>AC is not allowed for civil cases.</strong></li>
                 <li>Enter only the last name or corporation name of the plaintiff or first-named plaintiff.</li>
             </ol>
         </div>
@@ -1479,7 +1513,7 @@ def search_cases():
             <label>Civil Case Number</label>
             <input name="civil_case_number" value="{esc(civil_case_number)}" autocomplete="off" placeholder="SC... or SCC..." required>
             <label>Last Name / Corporation Name of Plaintiff</label>
-            <input name="civil_name" value="{esc(civil_name)}" autocomplete="off" required>
+            <input name="civil_name" value="{esc(civil_name)}" autocomplete="off" required style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()">
             <button type="submit">🔎 Search Civil Case</button>
         </form>
     </section>
@@ -1591,11 +1625,20 @@ def requirements():
                 f"<li>{esc(item)}</li>" for item in BOND_REQUIREMENTS
             ) + "</ol>"
         else:
-            checklist = (
-                "<p class='small'>"
-                + esc(description or tr("not_uploaded"))
-                + "</p>"
+            clearance_sections = []
+            for section in CLEARANCE_REQUIREMENTS:
+                items_html = "<ol class='requirement-list'>" + "".join(
+                    f"<li>{esc(item)}</li>" for item in section["items"]
+                ) + "</ol>"
+                clearance_sections.append(
+                    f"<h3>{esc(section['title'])}</h3>{items_html}"
+                )
+            notes_html = (
+                "<h3>NOTE:</h3><ol class='requirement-list'>"
+                + "".join(f"<li>{esc(item)}</li>" for item in CLEARANCE_NOTES)
+                + "</ol>"
             )
+            checklist = "".join(clearance_sections) + notes_html
         file_link = ""
         if row["file_name"]:
             file_link = (
@@ -1979,7 +2022,7 @@ def staff_add_case():
         if category not in {"Criminal", "Civil"}:
             category = "Civil"
 
-        plaintiff = form.get("plaintiff", "").strip() if category == "Civil" else ""
+        plaintiff = form.get("plaintiff", "").strip().upper() if category == "Civil" else ""
         defendant = form.get("defendant", "").strip() if category == "Criminal" else ""
 
         if not case_number:
@@ -2030,12 +2073,12 @@ def staff_add_case():
             <input name="case_number" placeholder="AC... or SC..." required>
 
             <div id="plaintiff-field">
-                <label>{tr('plaintiff')}</label>
-                <input name="plaintiff" id="plaintiff-input">
+                <label>Plaintiff's Last Name / First-Named Plaintiff / Corporation Name</label>
+                <input name="plaintiff" id="plaintiff-input" style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()">
             </div>
 
             <div id="defendant-field" style="display:none">
-                <label>{tr('accused')}</label>
+                <label>Accused's Last Name / First-Named Accused</label>
                 <input name="defendant" id="defendant-input">
             </div>
 
@@ -2082,7 +2125,7 @@ def staff_edit_case(case_id):
         form = request.form
         category = form.get("case_category", "Civil").strip().title()
         if category not in {"Criminal", "Civil"}: category = "Civil"
-        plaintiff = form.get("plaintiff", "").strip() if category == "Civil" else ""
+        plaintiff = form.get("plaintiff", "").strip().upper() if category == "Civil" else ""
         defendant = form.get("defendant", "").strip() if category == "Criminal" else ""
         if category == "Civil" and not plaintiff:
             flash("Plaintiff name is required for civil cases.", "danger")
@@ -2113,10 +2156,10 @@ def staff_edit_case(case_id):
             <label>{tr('case_category')}</label><select name="case_category" id="case_category" onchange="toggleAccused()"><option value="Civil" {'selected' if not criminal else ''}>{tr('civil')}</option><option value="Criminal" {'selected' if criminal else ''}>{tr('criminal')}</option></select>
             <label>{tr('case_number')}</label><input value="{esc(case['case_number'])}" disabled>
             <div id="plaintiff-field" style="display:{'none' if criminal else 'block'}">
-                <label>{tr('plaintiff')}</label><input name="plaintiff" id="plaintiff-input" value="{esc(case['plaintiff_name'])}" {'required' if not criminal else ''}>
+                <label>Plaintiff's Last Name / First-Named Plaintiff / Corporation Name</label><input name="plaintiff" id="plaintiff-input" style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()" value="{esc(case['plaintiff_name'])}" {'required' if not criminal else ''}>
             </div>
             <div id="defendant-field" style="display:{'block' if criminal else 'none'}">
-                <label>{tr('accused')}</label><input name="defendant" id="defendant-input" value="{esc(case['defendant_name'])}" {'required' if criminal else ''}>
+                <label>Accused's Last Name / First-Named Accused</label><input name="defendant" id="defendant-input" value="{esc(case['defendant_name'])}" {'required' if criminal else ''}>
             </div>
             <label>{tr('parties')}</label><input name="parties" value="{esc(case['parties'])}">
             <label>{tr('case_type')}</label><input name="case_type" value="{esc(case['case_type'])}">
