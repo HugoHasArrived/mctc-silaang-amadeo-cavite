@@ -1490,7 +1490,7 @@ def search_cases():
         <div class="notice">
             <ol>
                 <li>Enter a case number beginning with <strong>AC</strong> or <strong>SC</strong>.</li>
-                <li>Enter only the last name or first-named accused.</li>
+                <li>Enter only the last name of the accused or first-named accused.</li>
             </ol>
         </div>
         <form method="get" action="{url_for('search_cases')}">
@@ -1507,7 +1507,7 @@ def search_cases():
         <div class="notice">
             <ol>
                 <li>Enter a case number beginning with <strong>SC</strong> or <strong>SCC</strong>.</li>
-                <li>Enter only the last name or corporation name of the plaintiff or first-named plaintiff.</li>
+                <li>Enter only the last name or corporation name of the plaintiff or the first-named plaintiff.</li>
             </ol>
         </div>
         <form method="get" action="{url_for('search_cases')}">
@@ -2043,7 +2043,7 @@ def staff_add_case():
                 flash("The civil case number must start with SC or SCC. AC is not allowed for civil cases.", "danger")
                 return redirect(url_for("staff_add_case"))
         if category == "Criminal" and not defendant:
-            flash("The last name or first-named accused is required for criminal cases.", "danger")
+            flash("The accused's last name is required for criminal cases.", "danger")
             return redirect(url_for("staff_add_case"))
         connection = db()
         try:
@@ -2079,7 +2079,7 @@ def staff_add_case():
             </div>
 
             <div id="defendant-field" style="display:none">
-                <label>Accused's Last Name / First-Named Accused</label>
+                <label>Accused's Last Name</label>
                 <input name="defendant" id="defendant-input">
             </div>
 
@@ -2132,7 +2132,7 @@ def staff_edit_case(case_id):
             flash("Plaintiff name is required for civil cases.", "danger")
             return redirect(url_for("staff_edit_case", case_id=case_id))
         if category == "Criminal" and not defendant:
-            flash("The last name or first-named accused is required for criminal cases.", "danger")
+            flash("The accused's last name is required for criminal cases.", "danger")
             return redirect(url_for("staff_edit_case", case_id=case_id))
         upper_case_number = case["case_number"].upper()
         if category == "Criminal":
