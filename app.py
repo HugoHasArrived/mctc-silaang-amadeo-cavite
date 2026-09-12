@@ -130,7 +130,7 @@ T = {
         "case_number": "Case Number",
         "plaintiff": "Plaintiff's Last Name / Corporation Name",
         "defendant": "Defendant / Party",
-        "accused": "Accused Last Name / First-Named Accused",
+        "accused": "Accused's Last Name",
         "case_category": "Case Category",
         "criminal": "Criminal",
         "civil": "Civil",
@@ -192,7 +192,7 @@ T = {
         "case_number": "Numero ng Kaso",
         "plaintiff": "Apelyido ng Plaintiff / Pangalan ng Corporation",
         "defendant": "Defendant / Partido",
-        "accused": "Apelyido ng Akusado / Unang Pangalan ng Akusado",
+        "accused": "Apelyido ng Akusado",
         "case_category": "Kategorya ng Kaso",
         "criminal": "Kriminal",
         "civil": "Sibil",
@@ -1187,6 +1187,7 @@ def render_page(title, body, staff_page=False):
         nav.append(f"<a href='{url_for('search_cases')}'>{tr('search')}</a>")
         nav.append(f"<a href='{url_for('public_calendar')}'>{tr('calendar')}</a>")
         nav.append(f"<a href='{url_for('requirements')}'>{tr('requirements')}</a>")
+        nav.append(f"<a href='{url_for('public_laws')}'>{tr('laws')}</a>")
         nav.append(f"<a href='{url_for('news')}'>{tr('news')}</a>")
         nav.append(f"<a href='{url_for('contact')}'>{tr('contact')}</a>")
         nav.append(
@@ -1328,6 +1329,11 @@ def home():
             <h2>📄 {tr('requirements')}</h2>
             <p>View the publicly available posting bail bond and clearance information.</p>
             <a class="button" href="{url_for('requirements')}">{tr('view')}</a>
+        </div>
+        <div class="card centered home-feature-card">
+            <h2>⚖️ {tr('laws')}</h2>
+            <p>View publicly available laws, decisions and rules.</p>
+            <a class="button" href="{url_for('public_laws')}">{tr('view')}</a>
         </div>
         <div class="card centered home-feature-card">
             <h2>📢 {tr('news')}</h2>
@@ -1490,7 +1496,7 @@ def search_cases():
         <div class="notice">
             <ol>
                 <li>Enter the case number beginning with <strong>AC</strong> or <strong>SC</strong>.</li>
-                <li>Enter only the last name of the accused or first-named accused.</li>
+                <li>Enter only the last name of the accused or the first-named accused.</li>
             </ol>
         </div>
         <form method="get" action="{url_for('search_cases')}">
@@ -2515,6 +2521,50 @@ def delete_notice(notice_id):
     audit("notice_deleted", notice_id)
     flash("Notice deleted.", "success")
     return redirect(url_for("staff_notices"))
+@app.route("/laws")
+def public_laws():
+    connection = db()
+    rows = connection.execute(
+        "SELECT * FROM legal_resources ORDER BY created_at DESC"
+    ).fetchall()
+    connection.close()
+
+    cards = ""
+    for row in rows:
+        links = ""
+        if row["source_url"]:
+            links += (
+                f"<a class='button secondary' href='{esc(row['source_url'])}' target='_blank' rel='noopener noreferrer'>"
+                f"{tr('official_source')}</a> "
+            )
+        if row["file_name"]:
+            links += (
+                f"<a class='button secondary' href='{url_for('uploaded_file', filename=row['file_name'])}'>"
+                f"{tr('open')}</a> "
+            )
+        cards += f"""
+        <article class="notice">
+            <span class="status">{esc(row['category'])}</span>
+            <h3>{esc(row['title'])}</h3>
+            <p>{esc(row['description'])}</p>
+            {links}
+        </article>
+        """
+
+    body = f"""
+    <section class="card centered">
+        <h1>⚖️ {tr('laws')}</h1>
+        <p>Publicly available laws, decisions and rules.</p>
+        <div class="notice warning">
+            Official court records and certified documents should be obtained from the court.
+        </div>
+    </section>
+    <section class="card">
+        {cards or '<p class="empty">No legal resources have been published yet.</p>'}
+    </section>
+    """
+    return render_page(tr("laws"), body)
+
 @app.route("/staff/laws")
 @staff_required
 def staff_laws():
