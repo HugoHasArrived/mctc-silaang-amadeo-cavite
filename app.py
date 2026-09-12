@@ -1385,8 +1385,15 @@ def search_cases():
     def find_case(category, case_number, name):
         if not case_number or not name:
             return None
-        if not (case_number.upper().startswith("AC") or case_number.upper().startswith("SC")):
-            return "invalid_case_number"
+        upper_case_number = case_number.upper()
+        if category == "Criminal":
+            # Criminal cases: AC or SC, but not SCC.
+            if not (upper_case_number.startswith("AC") or (upper_case_number.startswith("SC") and not upper_case_number.startswith("SCC"))):
+                return "invalid_case_number"
+        else:
+            # Civil cases: SC or SCC. AC is not allowed.
+            if not upper_case_number.startswith("SC"):
+                return "invalid_case_number"
 
         connection = db()
         try:
@@ -1432,7 +1439,7 @@ def search_cases():
             civil_result = find_case("Civil", civil_case_number, civil_name)
             if civil_result == "invalid_case_number":
                 civil_result = None
-                flash("The civil case number must start with AC or SC.", "danger")
+                flash("The civil case number must start with SC or SCC. AC is not allowed for civil cases.", "danger")
             elif civil_result is None:
                 flash("No matching civil case was found.", "warning")
 
@@ -1463,13 +1470,14 @@ def search_cases():
         <h2>⚖️ {tr('civil')} Case Search</h2>
         <div class="notice">
             <ol>
-                <li>Enter a case number beginning with <strong>AC</strong> or <strong>SC</strong>.</li>
+                <li>Enter a case number beginning with <strong>SC</strong> or <strong>SCC</strong>.</li>
+                <li><strong>AC is not allowed for civil cases.</strong></li>
                 <li>Enter only the last name or corporation name of the plaintiff or first-named plaintiff.</li>
             </ol>
         </div>
         <form method="get" action="{url_for('search_cases')}">
             <label>Civil Case Number</label>
-            <input name="civil_case_number" value="{esc(civil_case_number)}" autocomplete="off" placeholder="AC... or SC..." required>
+            <input name="civil_case_number" value="{esc(civil_case_number)}" autocomplete="off" placeholder="SC... or SCC..." required>
             <label>Last Name / Corporation Name of Plaintiff</label>
             <input name="civil_name" value="{esc(civil_name)}" autocomplete="off" required>
             <button type="submit">🔎 Search Civil Case</button>
@@ -1981,9 +1989,15 @@ def staff_add_case():
         if category == "Civil" and not plaintiff:
             flash("Plaintiff name is required for civil cases.", "danger")
             return redirect(url_for("staff_add_case"))
-        if not (case_number.upper().startswith("AC") or case_number.upper().startswith("SC")):
-            flash("The case number must start with AC or SC.", "danger")
-            return redirect(url_for("staff_add_case"))
+        upper_case_number = case_number.upper()
+        if category == "Criminal":
+            if not (upper_case_number.startswith("AC") or (upper_case_number.startswith("SC") and not upper_case_number.startswith("SCC"))):
+                flash("The criminal case number must start with AC or SC.", "danger")
+                return redirect(url_for("staff_add_case"))
+        else:
+            if not upper_case_number.startswith("SC"):
+                flash("The civil case number must start with SC or SCC. AC is not allowed for civil cases.", "danger")
+                return redirect(url_for("staff_add_case"))
         if category == "Criminal" and not defendant:
             flash("The last name or first-named accused is required for criminal cases.", "danger")
             return redirect(url_for("staff_add_case"))
@@ -2076,6 +2090,15 @@ def staff_edit_case(case_id):
         if category == "Criminal" and not defendant:
             flash("The last name or first-named accused is required for criminal cases.", "danger")
             return redirect(url_for("staff_edit_case", case_id=case_id))
+        upper_case_number = case["case_number"].upper()
+        if category == "Criminal":
+            if not (upper_case_number.startswith("AC") or (upper_case_number.startswith("SC") and not upper_case_number.startswith("SCC"))):
+                flash("The criminal case number must start with AC or SC.", "danger")
+                return redirect(url_for("staff_edit_case", case_id=case_id))
+        else:
+            if not upper_case_number.startswith("SC"):
+                flash("The civil case number must start with SC or SCC. AC is not allowed for civil cases.", "danger")
+                return redirect(url_for("staff_edit_case", case_id=case_id))
         connection = db()
         connection.execute("UPDATE cases SET plaintiff_name=?, defendant_name=?, parties=?, case_category=?, case_type=?, status='Active', public_description=?, updated_at=? WHERE id=?", (plaintiff, defendant, form.get("parties", "").strip(), category, form.get("case_type", "").strip(), form.get("public_description", "").strip(), now(), case_id))
         durable_commit(connection)
