@@ -1910,13 +1910,19 @@ def staff_add_case():
     if request.method == "POST":
         form = request.form
         case_number = form.get("case_number", "").strip()
-        plaintiff = form.get("plaintiff", "").strip()
         category = form.get("case_category", "Civil").strip().title()
         if category not in {"Criminal", "Civil"}:
             category = "Civil"
+
+        plaintiff = form.get("plaintiff", "").strip() if category == "Civil" else ""
         defendant = form.get("defendant", "").strip() if category == "Criminal" else ""
-        if not case_number or not plaintiff:
-            flash("Case number and plaintiff name are required.", "danger")
+
+        if not case_number:
+            flash("Case number is required.", "danger")
+            return redirect(url_for("staff_add_case"))
+
+        if category == "Civil" and not plaintiff:
+            flash("Plaintiff name is required for civil cases.", "danger")
             return redirect(url_for("staff_add_case"))
         if not (case_number.upper().startswith("AC") or case_number.upper().startswith("SC")):
             flash("The case number must start with AC or SC.", "danger")
@@ -1944,16 +1950,52 @@ def staff_add_case():
     <section class="card"><h1 class="center">➕ {tr('add')}</h1>
         <form method="post">
             <label>{tr('case_category')}</label>
-            <select name="case_category" id="case_category" onchange="toggleAccused()" required><option value="Civil">{tr('civil')}</option><option value="Criminal">{tr('criminal')}</option></select>
-            <label>{tr('case_number')}</label><input name="case_number" placeholder="AC... or SC..." required>
-            <label>{tr('plaintiff')}</label><input name="plaintiff" required>
-            <div id="accused-field" style="display:none"><label>{tr('accused')}</label><input name="defendant"></div>
+            <select name="case_category" id="case_category" onchange="toggleCaseFields()" required>
+                <option value="Civil">{tr('civil')}</option>
+                <option value="Criminal">{tr('criminal')}</option>
+            </select>
+
+            <label>{tr('case_number')}</label>
+            <input name="case_number" placeholder="AC... or SC..." required>
+
+            <div id="plaintiff-field">
+                <label>{tr('plaintiff')}</label>
+                <input name="plaintiff" id="plaintiff-input">
+            </div>
+
+            <div id="defendant-field" style="display:none">
+                <label>{tr('accused')}</label>
+                <input name="defendant" id="defendant-input">
+            </div>
+
             <label>{tr('parties')}</label><input name="parties">
             <label>{tr('case_type')}</label><input name="case_type">
             <label>{tr('description')}</label><textarea name="public_description"></textarea>
             <button type="submit">{tr('save')}</button>
         </form>
-        <script>function toggleAccused(){{document.getElementById('accused-field').style.display=document.getElementById('case_category').value==='Criminal'?'block':'none';}}</script>
+
+        <script>
+        function toggleCaseFields() {{
+            const category = document.getElementById('case_category').value;
+            const plaintiffField = document.getElementById('plaintiff-field');
+            const plaintiffInput = document.getElementById('plaintiff-input');
+            const defendantField = document.getElementById('defendant-field');
+            const defendantInput = document.getElementById('defendant-input');
+            const criminal = category === 'Criminal';
+
+            plaintiffField.style.display = criminal ? 'none' : 'block';
+            defendantField.style.display = criminal ? 'block' : 'none';
+            plaintiffInput.required = !criminal;
+            defendantInput.required = criminal;
+
+            if (criminal) {{
+                plaintiffInput.value = '';
+            }} else {{
+                defendantInput.value = '';
+            }}
+        }}
+        toggleCaseFields();
+        </script>
     </section>
     """
     return render_page(tr("add"), body, staff_page=True)
@@ -1969,10 +2011,10 @@ def staff_edit_case(case_id):
         form = request.form
         category = form.get("case_category", "Civil").strip().title()
         if category not in {"Criminal", "Civil"}: category = "Civil"
-        plaintiff = form.get("plaintiff", "").strip()
+        plaintiff = form.get("plaintiff", "").strip() if category == "Civil" else ""
         defendant = form.get("defendant", "").strip() if category == "Criminal" else ""
-        if not plaintiff:
-            flash("Plaintiff name is required.", "danger")
+        if category == "Civil" and not plaintiff:
+            flash("Plaintiff name is required for civil cases.", "danger")
             return redirect(url_for("staff_edit_case", case_id=case_id))
         if category == "Criminal" and not defendant:
             flash("The last name or first-named accused is required for criminal cases.", "danger")
@@ -1990,14 +2032,32 @@ def staff_edit_case(case_id):
         <form method="post">
             <label>{tr('case_category')}</label><select name="case_category" id="case_category" onchange="toggleAccused()"><option value="Civil" {'selected' if not criminal else ''}>{tr('civil')}</option><option value="Criminal" {'selected' if criminal else ''}>{tr('criminal')}</option></select>
             <label>{tr('case_number')}</label><input value="{esc(case['case_number'])}" disabled>
-            <label>{tr('plaintiff')}</label><input name="plaintiff" value="{esc(case['plaintiff_name'])}" required>
-            <div id="accused-field" style="display:{'block' if criminal else 'none'}"><label>{tr('accused')}</label><input name="defendant" value="{esc(case['defendant_name'])}"></div>
+            <div id="plaintiff-field" style="display:{'none' if criminal else 'block'}">
+                <label>{tr('plaintiff')}</label><input name="plaintiff" id="plaintiff-input" value="{esc(case['plaintiff_name'])}" {'required' if not criminal else ''}>
+            </div>
+            <div id="defendant-field" style="display:{'block' if criminal else 'none'}">
+                <label>{tr('accused')}</label><input name="defendant" id="defendant-input" value="{esc(case['defendant_name'])}" {'required' if criminal else ''}>
+            </div>
             <label>{tr('parties')}</label><input name="parties" value="{esc(case['parties'])}">
             <label>{tr('case_type')}</label><input name="case_type" value="{esc(case['case_type'])}">
             <label>{tr('description')}</label><textarea name="public_description">{esc(case['public_description'])}</textarea>
             <button type="submit">{tr('save')}</button>
         </form>
-        <script>function toggleAccused(){{document.getElementById('accused-field').style.display=document.getElementById('case_category').value==='Criminal'?'block':'none';}}</script>
+        <script>
+        function toggleCaseFields() {{
+            const criminal = document.getElementById('case_category').value === 'Criminal';
+            const plaintiffField = document.getElementById('plaintiff-field');
+            const plaintiffInput = document.getElementById('plaintiff-input');
+            const defendantField = document.getElementById('defendant-field');
+            const defendantInput = document.getElementById('defendant-input');
+
+            plaintiffField.style.display = criminal ? 'none' : 'block';
+            defendantField.style.display = criminal ? 'block' : 'none';
+            plaintiffInput.required = !criminal;
+            defendantInput.required = criminal;
+        }}
+        toggleCaseFields();
+        </script>
     </section>
     """
     return render_page(tr("edit"), body, staff_page=True)
