@@ -130,7 +130,7 @@ T = {
         "case_number": "Case Number",
         "plaintiff": "Plaintiff's Last Name / Corporation Name",
         "defendant": "Defendant / Party",
-        "accused": "Accused's Last Name",
+        "accused": "Accused Last Name / First-Named Accused",
         "case_category": "Case Category",
         "criminal": "Criminal",
         "civil": "Civil",
@@ -192,7 +192,7 @@ T = {
         "case_number": "Numero ng Kaso",
         "plaintiff": "Apelyido ng Plaintiff / Pangalan ng Corporation",
         "defendant": "Defendant / Partido",
-        "accused": "Apelyido ng Akusado",
+        "accused": "Apelyido ng Akusado / Unang Pangalan ng Akusado",
         "case_category": "Kategorya ng Kaso",
         "criminal": "Kriminal",
         "civil": "Sibil",
@@ -1489,7 +1489,7 @@ def search_cases():
         <h2>⚖️ Criminal Case:</h2>
         <div class="notice">
             <ol>
-                <li>Enter a case number beginning with <strong>AC</strong> or <strong>SC</strong>.</li>
+                <li>Enter the case number beginning with <strong>AC</strong> or <strong>SC</strong>.</li>
                 <li>Enter only the last name of the accused or first-named accused.</li>
             </ol>
         </div>
@@ -1503,17 +1503,17 @@ def search_cases():
     </section>
 
     <section class="card">
-        <h2>⚖️ Civil Case:</h2>
+        <h2>⚖️ Civil Case</h2>
         <div class="notice">
             <ol>
-                <li>Enter a case number beginning with <strong>SC</strong> or <strong>SCC</strong>.</li>
+                <li>Enter the case number beginning with <strong>SC</strong> or <strong>SCC</strong>.</li>
                 <li>Enter only the last name or corporation name of the plaintiff or the first-named plaintiff.</li>
             </ol>
         </div>
         <form method="get" action="{url_for('search_cases')}">
             <label>Civil Case Number</label>
             <input name="civil_case_number" value="{esc(civil_case_number)}" autocomplete="off" placeholder="SC... or SCC..." required>
-            <label>Plaintiff's Last Name / Corporation Name</label>
+            <label>Plaintiff's Last Name</label>
             <input name="civil_name" value="{esc(civil_name)}" autocomplete="off" required style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()">
             <button type="submit">🔎 Search Civil Case</button>
         </form>
@@ -1526,7 +1526,7 @@ def search_cases():
             <h2>Criminal Case Result</h2>
             <span class="status">{esc(criminal_result['status'])}</span>
             <h2>{esc(criminal_result['case_number'])}</h2>
-            <p><strong>Accused's Last Name:</strong> {esc(criminal_result['defendant_name'])}</p>
+            <p><strong>{tr('defendant')}:</strong> {esc(criminal_result['defendant_name'])}</p>
             <p><strong>{tr('parties')}:</strong> {esc(criminal_result['parties'])}</p>
             <p><strong>{tr('case_type')}:</strong> {esc(criminal_result['case_type'])}</p>
             <p>{esc(criminal_result['public_description'])}</p>
