@@ -1412,7 +1412,8 @@ def search_cases():
                 <li>Enter a case number beginning with <strong>AC</strong> or <strong>SC</strong>.</li>
                 <li>For criminal cases, enter only the last name or first-named accused.</li>
                 <li>For civil cases, enter only the last name or corporation name of the plaintiff or first-named plaintiff.</li>
-                <li>Criminal cases are searched separately from civil cases.</li>
+                <li>Search criminal case.<li>
+                <li>Seach civil case.<li>
             </ol>
         </div>
         <form method="post">
