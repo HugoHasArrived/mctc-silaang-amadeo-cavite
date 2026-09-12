@@ -1288,6 +1288,7 @@ def render_page(title, body, staff_page=False):
                 <p>{{ court_phone }} · <a href="mailto:{{ court_email }}">{{ court_email }}</a></p>
                 <p><strong>{{ office_label }}:</strong> {{ office_hours }}</p>
                 <p><a href="{{ maps_url }}" target="_blank" rel="noopener noreferrer">🗺️ {{ maps_label }}</a></p>
+                <p>by JHR</p>
                 <p>{{ copyright }}</p>
             </footer>
         </body>
