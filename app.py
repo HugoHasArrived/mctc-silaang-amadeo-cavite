@@ -1961,7 +1961,7 @@ def staff_dashboard():
     </section>
     <section class="card">
         <h2 class="center">Quick Actions</h2>
-        <div class="grid">
+        <div class="grid" style="grid-template-columns:repeat(4,minmax(0,1fr));">
             <a class="card centered" href="{url_for('staff_cases')}">
                 <h3>📋 {tr('cases')}</h3><p>Add, edit and delete cases.</p>
             </a>
@@ -1974,6 +1974,8 @@ def staff_dashboard():
             <a class="card centered" href="{url_for('staff_laws')}">
                 <h3>⚖️ {tr('laws')}</h3><p>Manage legal resources.</p>
             </a>
+        </div>
+        <div class="grid" style="grid-template-columns:repeat(3,minmax(0,1fr));max-width:1020px;margin:28px auto 0;">
             <a class="card centered" href="{url_for('staff_notices')}">
                 <h3>📢 {tr('notices')}</h3><p>Publish announcements and attachments.</p>
             </a>
@@ -2035,7 +2037,7 @@ def staff_cases():
 def staff_add_case():
     if request.method == "POST":
         form = request.form
-        case_number = form.get("case_number", "").strip()
+        case_number = form.get("case_number", "").strip().upper()
         category = form.get("case_category", "Civil").strip().title()
         if category not in {"Criminal", "Civil"}:
             category = "Civil"
