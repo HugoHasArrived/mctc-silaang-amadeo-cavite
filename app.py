@@ -1372,83 +1372,139 @@ def news():
         + (cards or "<div class='card empty'>No announcements have been published.</div>")
     )
     return render_page(tr("news"), body)
-@app.route("/search", methods=["GET", "POST"])
+@app.route("/search", methods=["GET"])
 def search_cases():
-    case_number = request.values.get("case_number", "").strip()
-    name = request.values.get("name", "").strip()
-    case_category = request.values.get("case_category", "Criminal").strip().title()
-    if case_category not in {"Criminal", "Civil"}:
-        case_category = "Criminal"
-    result = None
+    criminal_case_number = request.args.get("criminal_case_number", "").strip()
+    criminal_name = request.args.get("criminal_name", "").strip()
+    civil_case_number = request.args.get("civil_case_number", "").strip()
+    civil_name = request.args.get("civil_name", "").strip()
 
-    if request.method == "POST":
+    criminal_result = None
+    civil_result = None
+
+    def find_case(category, case_number, name):
         if not case_number or not name:
-            flash(tr("required_search"), "danger")
-        elif not (case_number.upper().startswith("AC") or case_number.upper().startswith("SC")):
-            flash("The case number must start with AC or SC.", "danger")
-        else:
-            connection = db()
-            if case_category == "Criminal":
-                result = connection.execute(
-                    "SELECT * FROM cases WHERE case_category = 'Criminal' AND lower(case_number) = lower(?) AND lower(defendant_name) = lower(?) LIMIT 1",
-                    (case_number, name),
-                ).fetchone()
-            else:
-                result = connection.execute(
-                    "SELECT * FROM cases WHERE case_category = 'Civil' AND lower(case_number) = lower(?) AND lower(plaintiff_name) = lower(?) LIMIT 1",
-                    (case_number, name),
-                ).fetchone()
-            connection.close()
-            if result is None:
-                flash(tr("no_results"), "warning")
+            return None
+        if not (case_number.upper().startswith("AC") or case_number.upper().startswith("SC")):
+            return "invalid_case_number"
 
-    name_label = tr("accused") if case_category == "Criminal" else tr("plaintiff")
+        connection = db()
+        try:
+            if category == "Criminal":
+                return connection.execute(
+                    """
+                    SELECT * FROM cases
+                    WHERE case_category = 'Criminal'
+                    AND lower(case_number) = lower(?)
+                    AND lower(defendant_name) = lower(?)
+                    LIMIT 1
+                    """,
+                    (case_number, name),
+                ).fetchone()
+            return connection.execute(
+                """
+                SELECT * FROM cases
+                WHERE case_category = 'Civil'
+                AND lower(case_number) = lower(?)
+                AND lower(plaintiff_name) = lower(?)
+                LIMIT 1
+                """,
+                (case_number, name),
+            ).fetchone()
+        finally:
+            connection.close()
+
+    if criminal_case_number or criminal_name:
+        if not criminal_case_number or not criminal_name:
+            flash("For criminal cases, enter both the case number and the accused's last name or first-named accused.", "danger")
+        else:
+            criminal_result = find_case("Criminal", criminal_case_number, criminal_name)
+            if criminal_result == "invalid_case_number":
+                criminal_result = None
+                flash("The criminal case number must start with AC or SC.", "danger")
+            elif criminal_result is None:
+                flash("No matching criminal case was found.", "warning")
+
+    if civil_case_number or civil_name:
+        if not civil_case_number or not civil_name:
+            flash("For civil cases, enter both the case number and the plaintiff's last name or corporation name.", "danger")
+        else:
+            civil_result = find_case("Civil", civil_case_number, civil_name)
+            if civil_result == "invalid_case_number":
+                civil_result = None
+                flash("The civil case number must start with AC or SC.", "danger")
+            elif civil_result is None:
+                flash("No matching civil case was found.", "warning")
+
     body = f"""
-    <section class="card">
+    <section class="card centered">
         <h1>🔎 {tr('search')}</h1>
+        <p>Criminal and civil cases have separate search forms.</p>
+    </section>
+
+    <section class="card">
+        <h2>⚖️ {tr('criminal')} Case Search</h2>
         <div class="notice">
-            <h3>{tr('how_search')}</h3>
             <ol>
                 <li>Enter a case number beginning with <strong>AC</strong> or <strong>SC</strong>.</li>
-                <li>For criminal cases, enter only the last name or first-named accused.</li>
-                <li>For civil cases, enter only the last name or corporation name of the plaintiff or first-named plaintiff.</li>
-                <li>Search criminal case.<li>
-                <li>Seach civil case.<li>
+                <li>Enter only the last name or first-named accused.</li>
             </ol>
         </div>
-        <form method="post">
-            <label>{tr('case_category')}</label>
-            <select name="case_category">
-                <option value="Criminal" {'selected' if case_category == 'Criminal' else ''}>{tr('criminal')}</option>
-                <option value="Civil" {'selected' if case_category == 'Civil' else ''}>{tr('civil')}</option>
-            </select>
-            <label>{tr('case_number')}</label>
-            <input name="case_number" value="{esc(case_number)}" autocomplete="off" placeholder="AC... or SC..." required>
-            <label>{name_label}</label>
-            <input name="name" value="{esc(name)}" autocomplete="off" required>
-            <button type="submit">🔎 {tr('search')}</button>
+        <form method="get" action="{url_for('search_cases')}">
+            <label>Criminal Case Number</label>
+            <input name="criminal_case_number" value="{esc(criminal_case_number)}" autocomplete="off" placeholder="AC... or SC..." required>
+            <label>Last Name / First-Named Accused</label>
+            <input name="criminal_name" value="{esc(criminal_name)}" autocomplete="off" required>
+            <button type="submit">🔎 Search Criminal Case</button>
+        </form>
+    </section>
+
+    <section class="card">
+        <h2>⚖️ {tr('civil')} Case Search</h2>
+        <div class="notice">
+            <ol>
+                <li>Enter a case number beginning with <strong>AC</strong> or <strong>SC</strong>.</li>
+                <li>Enter only the last name or corporation name of the plaintiff or first-named plaintiff.</li>
+            </ol>
+        </div>
+        <form method="get" action="{url_for('search_cases')}">
+            <label>Civil Case Number</label>
+            <input name="civil_case_number" value="{esc(civil_case_number)}" autocomplete="off" placeholder="AC... or SC..." required>
+            <label>Last Name / Corporation Name of Plaintiff</label>
+            <input name="civil_name" value="{esc(civil_name)}" autocomplete="off" required>
+            <button type="submit">🔎 Search Civil Case</button>
         </form>
     </section>
     """
-    if result:
-        if result["case_category"] == "Criminal":
-            primary = f"<p><strong>{tr('defendant')}:</strong> {esc(result['defendant_name'])}</p>"
-            secondary = f"<p><strong>{tr('plaintiff')}:</strong> {esc(result['plaintiff_name'])}</p>"
-        else:
-            primary = f"<p><strong>{tr('plaintiff')}:</strong> {esc(result['plaintiff_name'])}</p>"
-            secondary = ""
+
+    if criminal_result:
         body += f"""
         <section class="card">
-            <span class="status">{esc(result['status'])}</span>
-            <h2>{esc(result['case_number'])}</h2>
-            {primary}
-            {secondary}
-            <p><strong>{tr('parties')}:</strong> {esc(result['parties'])}</p>
-            <p><strong>{tr('case_type')}:</strong> {esc(result['case_type'])}</p>
-            <p>{esc(result['public_description'])}</p>
-            <a class="button" href="{url_for('public_case', case_id=result['id'])}">{tr('view')}</a>
+            <h2>Criminal Case Result</h2>
+            <span class="status">{esc(criminal_result['status'])}</span>
+            <h2>{esc(criminal_result['case_number'])}</h2>
+            <p><strong>{tr('defendant')}:</strong> {esc(criminal_result['defendant_name'])}</p>
+            <p><strong>{tr('parties')}:</strong> {esc(criminal_result['parties'])}</p>
+            <p><strong>{tr('case_type')}:</strong> {esc(criminal_result['case_type'])}</p>
+            <p>{esc(criminal_result['public_description'])}</p>
+            <a class="button" href="{url_for('public_case', case_id=criminal_result['id'])}">{tr('view')}</a>
         </section>
         """
+
+    if civil_result:
+        body += f"""
+        <section class="card">
+            <h2>Civil Case Result</h2>
+            <span class="status">{esc(civil_result['status'])}</span>
+            <h2>{esc(civil_result['case_number'])}</h2>
+            <p><strong>{tr('plaintiff')}:</strong> {esc(civil_result['plaintiff_name'])}</p>
+            <p><strong>{tr('parties')}:</strong> {esc(civil_result['parties'])}</p>
+            <p><strong>{tr('case_type')}:</strong> {esc(civil_result['case_type'])}</p>
+            <p>{esc(civil_result['public_description'])}</p>
+            <a class="button" href="{url_for('public_case', case_id=civil_result['id'])}">{tr('view')}</a>
+        </section>
+        """
+
     return render_page(tr("search"), body)
 @app.route("/case/<int:case_id>")
 def public_case(case_id):
