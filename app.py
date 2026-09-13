@@ -5,6 +5,7 @@ import sqlite3
 import io
 import secrets
 import hashlib
+import re
 from pathlib import Path
 from functools import wraps
 from datetime import datetime, timezone, timedelta
