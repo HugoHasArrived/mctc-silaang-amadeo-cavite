@@ -1228,7 +1228,6 @@ def render_page(title, body, staff_page=False):
         nav.append(f"<a href='{url_for('public_calendar')}'>{tr('calendar')}</a>")
         nav.append(f"<a href='{url_for('requirements')}'>{tr('requirements')}</a>")
         nav.append(f"<a href='{url_for('public_laws')}'>{tr('laws')}</a>")
-        nav.append(f"<a href='{url_for('jhr')}'>JHR</a>")
         nav.append(f"<a href='{url_for('news')}'>{tr('news')}</a>")
         nav.append(f"<a href='{url_for('contact')}'>{tr('contact')}</a>")
         nav.append(
