@@ -2067,6 +2067,20 @@ def staff_cases():
         civil_rows = connection.execute("SELECT * FROM cases WHERE case_category = 'Civil' ORDER BY updated_at DESC").fetchall()
     connection.close()
 
+    def case_sort_key(row):
+        case_number = str(row["case_number"] or "").upper().strip()
+        parts = re.split(r"(\d+)", case_number)
+        key = []
+        for part in parts:
+            if part.isdigit():
+                key.append((1, int(part)))
+            else:
+                key.append((0, part))
+        return key
+
+    criminal_rows = sorted(criminal_rows, key=case_sort_key)
+    civil_rows = sorted(civil_rows, key=case_sort_key)
+
     def rows_html(rows, criminal):
         if not rows:
             return f"<tr><td colspan='{6 if criminal else 5}' class='empty'>No {'criminal' if criminal else 'civil'} cases.</td></tr>"
@@ -2145,7 +2159,7 @@ def staff_add_case():
             connection.execute(
                 """INSERT INTO cases (case_number, plaintiff_name, defendant_name, parties, case_category, case_type, status, public_description, created_at, updated_at)
                 VALUES (?, ?, ?, ?, ?, ?, 'Active', ?, ?, ?)""",
-                (case_number, plaintiff, defendant, form.get("parties", "").strip(), category, form.get("case_type", "").strip(), form.get("public_description", "").strip(), now(), now()),
+                (upper_case_number, plaintiff, defendant, form.get("parties", "").strip(), category, form.get("case_type", "").strip(), form.get("public_description", "").strip(), now(), now()),
             )
             durable_commit(connection)
         except sqlite3.IntegrityError:
