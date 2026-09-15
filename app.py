@@ -2127,7 +2127,7 @@ def staff_cases():
                 <td>{esc(row['case_type'])}</td>
                 <td><span class="status">{esc(row['status'])}</span></td>
                 <td>
-                    {'' if criminal else f'<a class="button secondary" href="{url_for("staff_edit_case", case_id=row["id"])}">{tr("edit")}</a>'}
+                    <a class="button secondary" href="{url_for("staff_edit_case", case_id=row["id"])}">{tr("edit")}</a>
                     <a class="button secondary" href="{url_for('staff_hearing', case_id=row['id'])}">{tr('hearing')}</a>
                     <form method="post" action="{url_for('staff_delete_case', case_id=row['id'])}" style="display:inline">
                         <button class="danger" type="submit" onclick="return confirm('Delete this case permanently?')">{tr('delete')}</button>
@@ -2265,8 +2265,6 @@ def staff_edit_case(case_id):
     connection.close()
     if case is None:
         abort(404)
-    if case["case_category"] == "Criminal":
-        abort(403)
     if request.method == "POST":
         form = request.form
         category = form.get("case_category", "Civil").strip().title()
