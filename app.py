@@ -63,6 +63,9 @@ app.secret_key = os.environ.get(
 app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=5)
+app.config["SESSION_REFRESH_EACH_REQUEST"] = True
+STAFF_IDLE_TIMEOUT = timedelta(minutes=5)
 if os.environ.get("RENDER"):
     app.config["SESSION_COOKIE_SECURE"] = True
 COURT_NAME = "Municipal Circuit Trial Court of Silang-Amadeo, Cavite"
@@ -690,6 +693,19 @@ def staff_required(function):
         if not session.get("staff_logged_in", False):
             flash(tr("login_required"), "warning")
             return redirect(url_for("staff_login"))
+        last_activity = session.get("staff_last_activity")
+        try:
+            last_activity_at = datetime.fromisoformat(last_activity) if last_activity else None
+        except (TypeError, ValueError):
+            last_activity_at = None
+        current_time = datetime.utcnow()
+        if last_activity_at is None or current_time - last_activity_at >= STAFF_IDLE_TIMEOUT:
+            username = session.get("staff_username", "")
+            session.clear()
+            audit("auto_logout", username)
+            flash("You were automatically logged out after 5 minutes of inactivity.", "warning")
+            return redirect(url_for("staff_login"))
+        session["staff_last_activity"] = current_time.isoformat(timespec="seconds")
         return function(*args, **kwargs)
     return wrapper
 def admin_required(function):
@@ -1291,6 +1307,20 @@ def render_page(title, body, staff_page=False):
                 <p>by JHR</p>
                 <p>{{ copyright }}</p>
             </footer>
+            {% if staff_logged_in %}
+            <script>
+            (function () {
+                const logoutUrl = {{ url_for('logout')|tojson }};
+                let timer;
+                function resetTimer() {
+                    clearTimeout(timer);
+                    timer = setTimeout(() => { window.location.href = logoutUrl; }, 5 * 60 * 1000);
+                }
+                ['click', 'keydown', 'mousemove', 'scroll', 'touchstart'].forEach(eventName => document.addEventListener(eventName, resetTimer, {passive: true}));
+                resetTimer();
+            })();
+            </script>
+            {% endif %}
         </body>
         </html>
         """,
@@ -1310,6 +1340,7 @@ def render_page(title, body, staff_page=False):
         navigation="".join(nav),
         flashes=flashes,
         staff_identity=staff_identity,
+        staff_logged_in=session.get("staff_logged_in", False),
         staff_page=staff_page,
         body=body,
     )
@@ -1817,7 +1848,9 @@ def staff_login():
         connection.close()
         if staff and check_password_hash(staff["password_hash"], password):
             session.clear()
+            session.permanent = True
             session["staff_logged_in"] = True
+            session["staff_last_activity"] = datetime.utcnow().isoformat(timespec="seconds")
             session["staff_id"] = staff["id"]
             session["staff_username"] = staff["username"]
             session["staff_role"] = staff["role"]
@@ -2083,19 +2116,19 @@ def staff_cases():
 
     def rows_html(rows, criminal):
         if not rows:
-            return f"<tr><td colspan='{6 if criminal else 5}' class='empty'>No {'criminal' if criminal else 'civil'} cases.</td></tr>"
+            return f"<tr><td colspan='5' class='empty'>No {'criminal' if criminal else 'civil'} cases.</td></tr>"
         out = ""
         for row in rows:
             party_cell = f"<td>{esc(row['defendant_name'])}</td>" if criminal else ""
             out += f"""
             <tr>
                 <td><strong>{esc(row['case_number'])}</strong></td>
-                <td>{esc(row['plaintiff_name'])}</td>
+                {'' if criminal else f"<td>{esc(row['plaintiff_name'])}</td>"}
                 {party_cell}
                 <td>{esc(row['case_type'])}</td>
                 <td><span class="status">{esc(row['status'])}</span></td>
                 <td>
-                    <a class="button secondary" href="{url_for('staff_edit_case', case_id=row['id'])}">{tr('edit')}</a>
+                    {'' if criminal else f'<a class="button secondary" href="{url_for("staff_edit_case", case_id=row["id"])}">{tr("edit")}</a>'}
                     <a class="button secondary" href="{url_for('staff_hearing', case_id=row['id'])}">{tr('hearing')}</a>
                     <form method="post" action="{url_for('staff_delete_case', case_id=row['id'])}" style="display:inline">
                         <button class="danger" type="submit" onclick="return confirm('Delete this case permanently?')">{tr('delete')}</button>
@@ -2118,7 +2151,7 @@ def staff_cases():
         </form>
         <a class="button" href="{url_for('staff_add_case')}">➕ {tr('add')}</a>
     </section>
-    <section class="card"><h2>⚖️ {tr('criminal')} Cases</h2><div class="table-wrap"><table><thead><tr><th>{tr('case_number')}</th><th>{tr('plaintiff')}</th><th>{tr('accused')}</th><th>{tr('case_type')}</th><th>{tr('status')}</th><th>Actions</th></tr></thead><tbody>{rows_html(criminal_rows, True)}</tbody></table></div></section>
+    <section class="card"><h2>⚖️ {tr('criminal')} Cases</h2><div class="table-wrap"><table><thead><tr><th>{tr('case_number')}</th><th>{tr('accused')}</th><th>{tr('case_type')}</th><th>{tr('status')}</th><th>Actions</th></tr></thead><tbody>{rows_html(criminal_rows, True)}</tbody></table></div></section>
     <section class="card"><h2>⚖️ {tr('civil')} Cases</h2><div class="table-wrap"><table><thead><tr><th>{tr('case_number')}</th><th>{tr('plaintiff')}</th><th>{tr('case_type')}</th><th>{tr('status')}</th><th>Actions</th></tr></thead><tbody>{rows_html(civil_rows, False)}</tbody></table></div></section>
     """
     return render_page(tr("cases"), body, staff_page=True)
@@ -2233,6 +2266,8 @@ def staff_edit_case(case_id):
     connection.close()
     if case is None:
         abort(404)
+    if case["case_category"] == "Criminal":
+        abort(403)
     if request.method == "POST":
         form = request.form
         category = form.get("case_category", "Civil").strip().title()
@@ -2374,7 +2409,7 @@ def staff_hearing(case_id):
     natures = [
         "Initial Hearing",
         "Arraignment",
-        "Pre-Trial",
+        "Pre-Trial Conference/Preliminary Conference",
         "Trial",
         "Motion",
         "Compliance",
@@ -2399,10 +2434,17 @@ def staff_hearing(case_id):
         f"<option {'selected' if value == status_value else ''}>{esc(value)}</option>"
         for value in statuses
     )
+    delete_hearing_button = ""
+    if hearing:
+        delete_hearing_button = (
+            f"<form method='post' action='{url_for('staff_delete_hearing', case_id=case_id)}' class='actions'>"
+            f"<button class='danger' type='submit' onclick='return confirm(&quot;Delete this hearing information?&quot;)'>{tr('delete')} Hearing</button>"
+            "</form>"
+        )
     body = f"""
     <section class="card">
         <h1 class="center">📅 {tr('hearing')}</h1>
-        <p class="center"><strong>{esc(case['case_number'])}</strong> · {esc(case['plaintiff_name'])}</p>
+        <p class="center"><strong>{esc(case['case_number'])}</strong> · {esc(case['defendant_name'] if case['case_category'] == 'Criminal' else case['plaintiff_name'])}</p>
         <form method="post">
             <label>{tr('hearing_date')}</label>
             <input type="date" name="hearing_date" value="{esc(date_value)}" required>
@@ -2416,9 +2458,31 @@ def staff_hearing(case_id):
             <textarea name="remarks">{esc(remarks_value)}</textarea>
             <button type="submit">{tr('save')}</button>
         </form>
+        {delete_hearing_button}
     </section>
     """
     return render_page(tr("hearing"), body, staff_page=True)
+
+@app.post("/staff/cases/<int:case_id>/hearing/delete")
+@staff_required
+def staff_delete_hearing(case_id):
+    connection = db()
+    case = connection.execute("SELECT case_number FROM cases WHERE id = ?", (case_id,)).fetchone()
+    hearing = connection.execute("SELECT id FROM hearings WHERE case_id = ? ORDER BY id DESC LIMIT 1", (case_id,)).fetchone()
+    if case is None:
+        connection.close()
+        abort(404)
+    if hearing is None:
+        connection.close()
+        flash("No hearing information to delete.", "warning")
+        return redirect(url_for("staff_hearing", case_id=case_id))
+    connection.execute("DELETE FROM hearings WHERE id = ?", (hearing["id"],))
+    durable_commit(connection)
+    connection.close()
+    audit("hearing_deleted", case["case_number"])
+    flash("Hearing information deleted successfully.", "success")
+    return redirect(url_for("staff_hearing", case_id=case_id))
+
 @app.route("/staff/calendar")
 @staff_required
 def staff_calendar():
