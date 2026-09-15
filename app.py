@@ -133,7 +133,7 @@ T = {
         "upload": "Upload",
         "case_number": "Case Number",
         "plaintiff": "Plaintiff's Last Name / Corporation Name",
-        "defendant": "Defendant / Party",
+        "defendant": "Accused",
         "accused": "Accused's Last Name",
         "case_category": "Case Category",
         "criminal": "Criminal",
@@ -195,7 +195,7 @@ T = {
         "upload": "Mag-upload",
         "case_number": "Numero ng Kaso",
         "plaintiff": "Apelyido ng Plaintiff / Pangalan ng Corporation",
-        "defendant": "Defendant / Partido",
+        "defendant": "Akusado",
         "accused": "Apelyido ng Akusado",
         "case_category": "Kategorya ng Kaso",
         "criminal": "Kriminal",
@@ -1615,7 +1615,7 @@ def search_cases():
             <h2>Criminal Case Result</h2>
             <span class="status">{esc(criminal_result['status'])}</span>
             <h2>{esc(criminal_result['case_number'])}</h2>
-            <p><strong>{tr('defendant')}:</strong> {esc(criminal_result['defendant_name'])}</p>
+            <p><strong>Accused:</strong> {esc(criminal_result['defendant_name'])}</p>
             <p><strong>{tr('parties')}:</strong> {esc(criminal_result['parties'])}</p>
             <p><strong>{tr('case_type')}:</strong> {esc(criminal_result['case_type'])}</p>
             <p>{esc(criminal_result['public_description'])}</p>
@@ -2269,26 +2269,34 @@ def staff_edit_case(case_id):
         form = request.form
         category = form.get("case_category", "Civil").strip().title()
         if category not in {"Criminal", "Civil"}: category = "Civil"
+        case_number = form.get("case_number", "").strip().upper()
         plaintiff = form.get("plaintiff", "").strip().upper() if category == "Civil" else ""
         defendant = form.get("defendant", "").strip() if category == "Criminal" else ""
+        if not case_number:
+            flash("Case number is required.", "danger")
+            return redirect(url_for("staff_edit_case", case_id=case_id))
         if category == "Civil" and not plaintiff:
             flash("Plaintiff name is required for civil cases.", "danger")
             return redirect(url_for("staff_edit_case", case_id=case_id))
         if category == "Criminal" and not defendant:
             flash("The accused's last name is required for criminal cases.", "danger")
             return redirect(url_for("staff_edit_case", case_id=case_id))
-        upper_case_number = case["case_number"].upper()
         if category == "Criminal":
-            if not (upper_case_number.startswith("AC") or (upper_case_number.startswith("SC") and not upper_case_number.startswith("SCC"))):
+            if not (case_number.startswith("AC") or (case_number.startswith("SC") and not case_number.startswith("SCC"))):
                 flash("The criminal case number must start with AC or SC.", "danger")
                 return redirect(url_for("staff_edit_case", case_id=case_id))
         else:
-            if not (upper_case_number.startswith("CC") or upper_case_number.startswith("SCC")):
+            if not (case_number.startswith("CC") or case_number.startswith("SCC")):
                 flash("The civil case number must start with CC or SCC. AC is not allowed for civil cases.", "danger")
                 return redirect(url_for("staff_edit_case", case_id=case_id))
         connection = db()
-        connection.execute("UPDATE cases SET plaintiff_name=?, defendant_name=?, parties=?, case_category=?, case_type=?, status='Active', public_description=?, updated_at=? WHERE id=?", (plaintiff, defendant, form.get("parties", "").strip(), category, form.get("case_type", "").strip(), form.get("public_description", "").strip(), now(), case_id))
-        durable_commit(connection)
+        try:
+            connection.execute("UPDATE cases SET case_number=?, plaintiff_name=?, defendant_name=?, parties=?, case_category=?, case_type=?, status='Active', public_description=?, updated_at=? WHERE id=?", (case_number, plaintiff, defendant, form.get("parties", "").strip(), category, form.get("case_type", "").strip(), form.get("public_description", "").strip(), now(), case_id))
+            durable_commit(connection)
+        except sqlite3.IntegrityError:
+            connection.close()
+            flash("That case number already exists.", "danger")
+            return redirect(url_for("staff_edit_case", case_id=case_id))
         connection.close()
         audit("case_updated", case["case_number"])
         flash("Case updated successfully.", "success")
@@ -2297,8 +2305,8 @@ def staff_edit_case(case_id):
     body = f"""
     <section class="card"><h1 class="center">✏️ {tr('edit')}</h1>
         <form method="post">
-            <label>{tr('case_category')}</label><select name="case_category" id="case_category" onchange="toggleAccused()"><option value="Civil" {'selected' if not criminal else ''}>{tr('civil')}</option><option value="Criminal" {'selected' if criminal else ''}>{tr('criminal')}</option></select>
-            <label>{tr('case_number')}</label><input value="{esc(case['case_number'])}" disabled>
+            <label>{tr('case_category')}</label><select name="case_category" id="case_category" onchange="toggleCaseFields()"><option value="Civil" {'selected' if not criminal else ''}>{tr('civil')}</option><option value="Criminal" {'selected' if criminal else ''}>{tr('criminal')}</option></select>
+            <label>{tr('case_number')}</label><input name="case_number" value="{esc(case['case_number'])}" style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()" required>
             <div id="plaintiff-field" style="display:{'none' if criminal else 'block'}">
                 <label>Plaintiff's Last Name / Corporation Name</label><input name="plaintiff" id="plaintiff-input" style="text-transform: uppercase" oninput="this.value = this.value.toUpperCase()" value="{esc(case['plaintiff_name'])}" {'required' if not criminal else ''}>
             </div>
