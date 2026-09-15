@@ -1671,8 +1671,7 @@ def public_case(case_id):
     <section class="card">
         <span class="status">{esc(case['status'])}</span>
         <h1>{esc(case['case_number'])}</h1>
-        <p><strong>{tr('plaintiff')}:</strong> {esc(case['plaintiff_name'])}</p>
-        {'' if case['case_category'] == 'Civil' else f"<p><strong>{tr('defendant')}:</strong> {esc(case['defendant_name'])}</p>"}
+        {f"<p><strong>{tr('plaintiff')}:</strong> {esc(case['plaintiff_name'])}</p>" if case['case_category'] == 'Civil' else f"<p><strong>Accused:</strong> {esc(case['defendant_name'])}</p>"}
         <p><strong>{tr('parties')}:</strong> {esc(case['parties'])}</p>
         <p><strong>{tr('case_type')}:</strong> {esc(case['case_type'])}</p>
         <p>{esc(case['public_description'])}</p>
@@ -2415,7 +2414,6 @@ def staff_hearing(case_id):
         "Compliance",
         "Judgment",
         "Promulgation",
-        "Hearing",
         "Clarificatory Hearing",
         "Other",
     ]
