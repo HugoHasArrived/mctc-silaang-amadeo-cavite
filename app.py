@@ -1428,7 +1428,7 @@ def about():
         <h1>{tr('about')}</h1>
         <h2>{esc(COURT_NAME)}</h2>
         <p>
-            The Municipal Circuit Trial Court of Silang–Amadeo, Cavite, formally identified by the Supreme Court as the 2nd Municipal Circuit Trial Court of Silang–Amadeo, Cavite, is a first-level trial court of the Fourth Judicial Region of the Philippines. Its territorial jurisdiction covers the municipalities of Silang and Amadeo, Cavite. It handles cases within the jurisdiction of first level courts, which generally includes appropriate civil, criminal, and other cases specifically assigned by law, subject to statutory jurisdictional limits.
+            The Municipal Circuit Trial Court of Silang–Amadeo, Cavite, formally identified by the Supreme Court as the 2nd Municipal Circuit Trial Court of Silang–Amadeo, Cavite, is a first level trial court of the Fourth Judicial Region of the Philippines. Its territorial jurisdiction covers the municipalities of Silang and Amadeo, Cavite. It handles cases within the jurisdiction of first level courts, which generally includes appropriate civil, criminal, and other cases specifically assigned by law, subject to statutory jurisdictional limits.
         </p>
         <div class="notice warning">
             Online information does not replace official court records,
