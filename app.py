@@ -446,6 +446,8 @@ def initialize_database():
             case_category TEXT NOT NULL DEFAULT 'Civil',
             case_type TEXT NOT NULL DEFAULT '',
             status TEXT NOT NULL DEFAULT 'Active',
+            termination_reason TEXT NOT NULL DEFAULT '',
+            internal_notes TEXT NOT NULL DEFAULT '',
             public_description TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -517,9 +519,6 @@ def initialize_database():
         );
         """
     )
-    connection.execute(
-        "UPDATE cases SET status = 'Active' WHERE status = 'Pending'"
-    )
     requirement_seeds = [
         (
             "bond",
@@ -535,6 +534,16 @@ def initialize_database():
     case_columns = {row[1] for row in connection.execute("PRAGMA table_info(cases)").fetchall()}
     if "case_category" not in case_columns:
         connection.execute("ALTER TABLE cases ADD COLUMN case_category TEXT NOT NULL DEFAULT 'Civil'")
+        case_columns.add("case_category")
+    if "termination_reason" not in case_columns:
+        connection.execute("ALTER TABLE cases ADD COLUMN termination_reason TEXT NOT NULL DEFAULT ''")
+        case_columns.add("termination_reason")
+    if "internal_notes" not in case_columns:
+        connection.execute("ALTER TABLE cases ADD COLUMN internal_notes TEXT NOT NULL DEFAULT ''")
+        case_columns.add("internal_notes")
+
+    # Keep legacy Pending records compatible with the new Active/Archived/Terminated workflow.
+    connection.execute("UPDATE cases SET status = 'Active' WHERE status = 'Pending'")
 
     for category, title_en, title_fil in requirement_seeds:
         exists = connection.execute(
@@ -1123,6 +1132,7 @@ th { background: var(--surface-soft); }
 }
 .small { color: var(--muted); font-size: 13px; }
 .empty { text-align: center; padding: 40px; color: var(--muted); }
+.staff-only-note { border-left-color: var(--warning); }
 footer {
     text-align: center;
     background: var(--surface);
@@ -2067,6 +2077,10 @@ def staff_dashboard():
     </section>
     """
     return render_page(tr("staff_dashboard"), body, staff_page=True)
+CASE_STATUSES = ("Active", "Archived", "Terminated")
+TERMINATION_REASONS = ("Provisionally Dismissed", "Dismissed", "Decided")
+
+
 @app.route("/staff/cases")
 @staff_required
 def staff_cases():
@@ -2125,7 +2139,10 @@ def staff_cases():
                 {'' if criminal else f"<td>{esc(row['plaintiff_name'])}</td>"}
                 {party_cell}
                 <td>{esc(row['case_type'])}</td>
-                <td><span class="status">{esc(row['status'])}</span></td>
+                <td>
+                    <span class="status">{esc(row['status'])}</span>
+                    {f'<div class="small"><strong>Outcome:</strong> {esc(row["termination_reason"])}</div>' if row["status"] == "Terminated" and row["termination_reason"] else ''}
+                </td>
                 <td>
                     <a class="button secondary" href="{url_for("staff_edit_case", case_id=row["id"])}">{tr("edit")}</a>
                     <a class="button secondary" href="{url_for('staff_hearing', case_id=row['id'])}">{tr('hearing')}</a>
@@ -2189,9 +2206,23 @@ def staff_add_case():
         connection = db()
         try:
             connection.execute(
-                """INSERT INTO cases (case_number, plaintiff_name, defendant_name, parties, case_category, case_type, status, public_description, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?, 'Active', ?, ?, ?)""",
-                (upper_case_number, plaintiff, defendant, form.get("parties", "").strip(), category, form.get("case_type", "").strip(), form.get("public_description", "").strip(), now(), now()),
+                """INSERT INTO cases
+                (case_number, plaintiff_name, defendant_name, parties, case_category,
+                 case_type, status, termination_reason, internal_notes,
+                 public_description, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, 'Active', '', ?, ?, ?, ?)""",
+                (
+                    upper_case_number,
+                    plaintiff,
+                    defendant,
+                    form.get("parties", "").strip(),
+                    category,
+                    form.get("case_type", "").strip(),
+                    form.get("internal_notes", "").strip(),
+                    form.get("public_description", "").strip(),
+                    now(),
+                    now(),
+                ),
             )
             durable_commit(connection)
         except sqlite3.IntegrityError:
@@ -2227,6 +2258,13 @@ def staff_add_case():
             <label>{tr('parties')}</label><input name="parties">
             <label>{tr('case_type')}</label><input name="case_type">
             <label>{tr('description')}</label><textarea name="public_description"></textarea>
+
+            <div class="notice warning">
+                <strong>🔒 Staff-Only Notes</strong>
+                <p class="small">These notes are private. Only authorized staff can view or edit them. They are never shown on the public case search.</p>
+            </div>
+            <label>Staff-Only Notes</label><textarea name="internal_notes" placeholder="Private notes for authorized court staff only."></textarea>
+
             <button type="submit">{tr('save')}</button>
         </form>
 
@@ -2289,9 +2327,46 @@ def staff_edit_case(case_id):
             if not (case_number.startswith("CC") or case_number.startswith("SCC")):
                 flash("The civil case number must start with CC or SCC. AC is not allowed for civil cases.", "danger")
                 return redirect(url_for("staff_edit_case", case_id=case_id))
+        status = form.get("status", "Active").strip()
+        if status not in CASE_STATUSES:
+            flash("Invalid case status.", "danger")
+            return redirect(url_for("staff_edit_case", case_id=case_id))
+
+        termination_reason = form.get("termination_reason", "").strip()
+        if status == "Terminated":
+            if termination_reason not in TERMINATION_REASONS:
+                flash("Please select a termination outcome for a terminated case.", "danger")
+                return redirect(url_for("staff_edit_case", case_id=case_id))
+        else:
+            termination_reason = ""
+
+        internal_notes = form.get("internal_notes", "").strip()
+
         connection = db()
         try:
-            connection.execute("UPDATE cases SET case_number=?, plaintiff_name=?, defendant_name=?, parties=?, case_category=?, case_type=?, status='Active', public_description=?, updated_at=? WHERE id=?", (case_number, plaintiff, defendant, form.get("parties", "").strip(), category, form.get("case_type", "").strip(), form.get("public_description", "").strip(), now(), case_id))
+            connection.execute(
+                """
+                UPDATE cases
+                SET case_number=?, plaintiff_name=?, defendant_name=?, parties=?,
+                    case_category=?, case_type=?, status=?, termination_reason=?,
+                    internal_notes=?, public_description=?, updated_at=?
+                WHERE id=?
+                """,
+                (
+                    case_number,
+                    plaintiff,
+                    defendant,
+                    form.get("parties", "").strip(),
+                    category,
+                    form.get("case_type", "").strip(),
+                    status,
+                    termination_reason,
+                    internal_notes,
+                    form.get("public_description", "").strip(),
+                    now(),
+                    case_id,
+                ),
+            )
             durable_commit(connection)
         except sqlite3.IntegrityError:
             connection.close()
@@ -2315,7 +2390,30 @@ def staff_edit_case(case_id):
             </div>
             <label>{tr('parties')}</label><input name="parties" value="{esc(case['parties'])}">
             <label>{tr('case_type')}</label><input name="case_type" value="{esc(case['case_type'])}">
+
+            <label>{tr('status')}</label>
+            <select name="status" id="case-status" onchange="toggleTerminationFields()" required>
+                {''.join(f'<option value="{esc(value)}" {"selected" if value == case["status"] else ""}>{esc(value)}</option>' for value in CASE_STATUSES)}
+            </select>
+
+            <div id="termination-fields" style="display:{'block' if case['status'] == 'Terminated' else 'none'}">
+                <label>Termination Outcome</label>
+                <select name="termination_reason" id="termination-reason">
+                    <option value="">Select outcome</option>
+                    {''.join(f'<option value="{esc(value)}" {"selected" if value == case["termination_reason"] else ""}>{esc(value)}</option>' for value in TERMINATION_REASONS)}
+                </select>
+                <p class="small">For terminated cases, select one: Provisionally Dismissed, Dismissed, or Decided.</p>
+            </div>
+
             <label>{tr('description')}</label><textarea name="public_description">{esc(case['public_description'])}</textarea>
+
+            <div class="notice warning">
+                <strong>🔒 Staff-Only Notes</strong>
+                <p class="small">These notes are private. Only authorized staff can view or edit them. They are never shown on the public case search.</p>
+            </div>
+            <label>Staff-Only Notes</label>
+            <textarea name="internal_notes" placeholder="Private notes for authorized court staff only.">{esc(case['internal_notes'])}</textarea>
+
             <button type="submit">{tr('save')}</button>
         </form>
         <script>
@@ -2331,7 +2429,19 @@ def staff_edit_case(case_id):
             plaintiffInput.required = !criminal;
             defendantInput.required = criminal;
         }}
+
+        function toggleTerminationFields() {{
+            const status = document.getElementById('case-status').value;
+            const fields = document.getElementById('termination-fields');
+            const reason = document.getElementById('termination-reason');
+            const terminated = status === 'Terminated';
+            fields.style.display = terminated ? 'block' : 'none';
+            reason.required = terminated;
+            if (!terminated) reason.value = '';
+        }}
+
         toggleCaseFields();
+        toggleTerminationFields();
         </script>
     </section>
     """
