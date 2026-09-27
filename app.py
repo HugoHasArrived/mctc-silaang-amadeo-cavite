@@ -625,8 +625,10 @@ def initialize_database():
     connection.commit()
     connection.close()
 configure_mongodb()
-initialize_database()
+# Restore the latest MongoDB snapshot first, then run schema migrations.
+# This prevents an older snapshot from overwriting newly added SQLite columns.
 restore_sqlite_from_mongodb()
+initialize_database()
 restore_uploads_from_mongodb()
 BOND_REQUIREMENTS = [
     "Personal Data (form from court)",
