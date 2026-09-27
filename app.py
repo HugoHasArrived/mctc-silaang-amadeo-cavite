@@ -2115,7 +2115,12 @@ def staff_cases():
         civil_rows = connection.execute("SELECT * FROM cases WHERE case_category = 'Civil' ORDER BY updated_at DESC").fetchall()
     connection.close()
 
-    def case_sort_key(row):
+    # Group cases by status first, then sort each status group by case number.
+    # This keeps all Archived cases together, all Active cases together, and
+    # all Terminated cases together.
+    status_order = {status: index for index, status in enumerate(CASE_STATUSES)}
+
+    def case_number_sort_key(row):
         case_number = str(row["case_number"] or "").upper().strip()
         parts = re.split(r"(\d+)", case_number)
         key = []
@@ -2125,6 +2130,10 @@ def staff_cases():
             else:
                 key.append((0, part))
         return key
+
+    def case_sort_key(row):
+        status = str(row["status"] or "Active").strip()
+        return (status_order.get(status, len(status_order)), case_number_sort_key(row))
 
     criminal_rows = sorted(criminal_rows, key=case_sort_key)
     civil_rows = sorted(civil_rows, key=case_sort_key)
