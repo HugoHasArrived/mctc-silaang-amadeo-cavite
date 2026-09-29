@@ -2180,10 +2180,6 @@ def staff_dashboard():
             </a>
         </div>
     </section>
-    <section class="card centered">
-        <h2>Tuesday Schedule</h2>
-        <p>{esc(schedule_text)}</p>
-    </section>
     """
     return render_page(tr("staff_dashboard"), body, staff_page=True)
 CASE_STATUSES = ("Archived", "Active", "Terminated")
