@@ -1626,6 +1626,7 @@ def search_cases():
         <section class="card">
             <h2>Criminal Case Result</h2>
             <span class="status">{esc(criminal_result['status'])}</span>
+            {f"<p><strong>Termination Outcome:</strong> {esc(criminal_result['termination_reason'])}</p>" if criminal_result['status'] == 'Terminated' and criminal_result['termination_reason'] else ''}
             <h2>{esc(criminal_result['case_number'])}</h2>
             <p><strong>Accused:</strong> {esc(criminal_result['defendant_name'])}</p>
             <p><strong>{tr('parties')}:</strong> {esc(criminal_result['parties'])}</p>
@@ -1640,6 +1641,7 @@ def search_cases():
         <section class="card">
             <h2>Civil Case Result</h2>
             <span class="status">{esc(civil_result['status'])}</span>
+            {f"<p><strong>Termination Outcome:</strong> {esc(civil_result['termination_reason'])}</p>" if civil_result['status'] == 'Terminated' and civil_result['termination_reason'] else ''}
             <h2>{esc(civil_result['case_number'])}</h2>
             <p><strong>{tr('plaintiff')}:</strong> {esc(civil_result['plaintiff_name'])}</p>
             <p><strong>{tr('parties')}:</strong> {esc(civil_result['parties'])}</p>
@@ -1682,6 +1684,7 @@ def public_case(case_id):
     body = f"""
     <section class="card">
         <span class="status">{esc(case['status'])}</span>
+        {f"<p><strong>Termination Outcome:</strong> {esc(case['termination_reason'])}</p>" if case['status'] == 'Terminated' and case['termination_reason'] else ''}
         <h1>{esc(case['case_number'])}</h1>
         {f"<p><strong>{tr('plaintiff')}:</strong> {esc(case['plaintiff_name'])}</p>" if case['case_category'] == 'Civil' else f"<p><strong>Accused:</strong> {esc(case['defendant_name'])}</p>"}
         <p><strong>{tr('parties')}:</strong> {esc(case['parties'])}</p>
