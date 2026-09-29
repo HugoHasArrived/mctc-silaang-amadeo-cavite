@@ -2146,11 +2146,8 @@ def staff_dashboard():
     </section>
     <section class="card">
         <h2 class="center">Quick Actions</h2>
-        <!-- FIRST LINE: Cases, Tuesday Calendar, Requirements, News and Announcements -->
+        <!-- FIRST LINE: Tuesday Calendar, Requirements, Notices, News and Announcements -->
         <div class="staff-quick-row">
-            <a class="card centered" href="{url_for('staff_cases')}">
-                <h3>📋 {tr('cases')}</h3><p>Add, edit and delete cases.</p>
-            </a>
             <a class="card centered" href="{url_for('staff_calendar')}">
                 <h3>📅 {tr('calendar')}</h3><p>Upload the Tuesday schedule.</p>
             </a>
@@ -2158,14 +2155,17 @@ def staff_dashboard():
                 <h3>📄 {tr('requirements')}</h3><p>Manage public requirements.</p>
             </a>
             <a class="card centered" href="{url_for('staff_notices')}">
-                <h3>📢 News and Announcements</h3><p>Publish announcements and attachments.</p>
+                <h3>📢 Notices</h3><p>Manage official court notices.</p>
+            </a>
+            <a class="card centered" href="{url_for('staff_notices')}">
+                <h3>📰 News and Announcements</h3><p>Publish announcements and attachments.</p>
             </a>
         </div>
 
-        <!-- SECOND LINE: Notices full-width bar -->
+        <!-- SECOND LINE: Cases full-width bar -->
         <div class="staff-quick-row notice-row">
-            <a class="card centered" href="{url_for('staff_notices')}">
-                <h3>📢 Notices</h3><p>Manage official court notices, announcements, and attachments.</p>
+            <a class="card centered" href="{url_for('staff_cases')}">
+                <h3>📋 {tr('cases')}</h3><p>Add, edit and delete cases.</p>
             </a>
         </div>
 
