@@ -991,33 +991,39 @@ a:hover { text-decoration: underline; }
     gap: 16px;
     align-items: stretch;
 }
-.staff-quick-row.bottom {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 280px));
-    justify-content: center;
-    gap: 16px;
-    align-items: stretch;
+.staff-quick-row.notice-row {
+    grid-template-columns: 1fr;
     margin-top: 16px;
 }
-.staff-quick-row.bottom > .card {
+.staff-quick-row.notice-row > .card {
     width: 100%;
+}
+.staff-quick-row.third-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    margin-top: 16px;
 }
 @media (max-width: 1050px) {
     .staff-quick-row {
         grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    .staff-quick-row.bottom {
-        grid-template-columns: repeat(2, minmax(0, 280px));
+    .staff-quick-row.third-row {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
 }
 @media (max-width: 650px) {
-    .staff-quick-row {
-        grid-template-columns: 1fr;
-    }
-    .staff-quick-row.bottom {
+    .staff-quick-row,
+    .staff-quick-row.third-row {
         grid-template-columns: 1fr;
     }
 }
+.superadmin-tabs-card { margin-top: 24px; }
+.superadmin-tabs { display: flex; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+.superadmin-tab { width: auto; border: 1px solid var(--border); border-bottom: 0; border-radius: 12px 12px 0 0; padding: 12px 18px; background: var(--surface-soft); color: var(--text); font-weight: 800; cursor: pointer; }
+.superadmin-tab.active { background: var(--primary); color: #fff; }
+.superadmin-tab-panel { display: none; }
+.superadmin-tab-panel.active { display: block; }
+.viewer-detail-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 18px 0; }
+@media (max-width: 650px) { .viewer-detail-stats { grid-template-columns: 1fr; } }
 .hero {
     margin: 12px 0 24px;
     padding: 45px 22px;
@@ -2140,12 +2146,10 @@ def staff_dashboard():
     </section>
     <section class="card">
         <h2 class="center">Quick Actions</h2>
+        <!-- FIRST LINE: Cases, Tuesday Calendar, Requirements, News and Announcements -->
         <div class="staff-quick-row">
             <a class="card centered" href="{url_for('staff_cases')}">
                 <h3>📋 {tr('cases')}</h3><p>Add, edit and delete cases.</p>
-            </a>
-            <a class="card centered" href="{url_for('staff_viewers')}">
-                <h3>👁️ Viewer Activity</h3><p>View case viewer counts and viewing times.</p>
             </a>
             <a class="card centered" href="{url_for('staff_calendar')}">
                 <h3>📅 {tr('calendar')}</h3><p>Upload the Tuesday schedule.</p>
@@ -2153,13 +2157,22 @@ def staff_dashboard():
             <a class="card centered" href="{url_for('staff_requirements')}">
                 <h3>📄 {tr('requirements')}</h3><p>Manage public requirements.</p>
             </a>
-            <a class="card centered" href="{url_for('staff_laws')}">
-                <h3>⚖️ {tr('laws')}</h3><p>Manage legal resources.</p>
+            <a class="card centered" href="{url_for('staff_notices')}">
+                <h3>📢 News and Announcements</h3><p>Publish announcements and attachments.</p>
             </a>
         </div>
-        <div class="staff-quick-row bottom">
+
+        <!-- SECOND LINE: Notices full-width bar -->
+        <div class="staff-quick-row notice-row">
             <a class="card centered" href="{url_for('staff_notices')}">
-                <h3>📢 {tr('notices')}</h3><p>Publish announcements and attachments.</p>
+                <h3>📢 Notices</h3><p>Manage official court notices, announcements, and attachments.</p>
+            </a>
+        </div>
+
+        <!-- THIRD LINE: Viewer Activity, Staff Accounts, Change Password -->
+        <div class="staff-quick-row third-row">
+            <a class="card centered" href="{url_for('staff_viewers')}">
+                <h3>👁️ Viewer Activity</h3><p>View case viewer counts and viewing times.</p>
             </a>
             {'<a class="card centered" href="' + url_for('staff_accounts') + '"><h3>👥 ' + tr('staff_accounts') + '</h3><p>Add and manage staff accounts.</p></a>' if session.get('staff_role') in {'admin','superadmin'} else ''}
             <a class="card centered" href="{url_for('change_password')}">
@@ -3293,6 +3306,22 @@ def superadmin_dashboard():
         ORDER BY id DESC LIMIT 200
         """
     ).fetchall()
+    visitor_summary_rows = connection.execute(
+        """
+        SELECT visitor_id,
+               COUNT(*) AS total_views,
+               COUNT(DISTINCT case_id) AS cases_viewed,
+               MIN(viewed_at) AS first_viewed,
+               MAX(viewed_at) AS last_viewed,
+               MAX(ip_address) AS ip_address,
+               MAX(user_agent) AS user_agent,
+               MAX(referrer) AS referrer
+        FROM viewer_logs
+        GROUP BY visitor_id
+        ORDER BY last_viewed DESC
+        LIMIT 200
+        """
+    ).fetchall()
     connection.close()
     staff_table = "".join(
         f"<tr><td>{esc(r['username'])}</td><td>{esc(r['role'])}</td><td>{'Active' if r['active'] else 'Disabled'}</td></tr>"
@@ -3311,6 +3340,13 @@ def superadmin_dashboard():
         f"<td>{esc(r['visitor_id'])}</td><td>{esc(r['viewed_at'])}</td><td>{esc(r['ip_address'])}</td>"
         f"<td>{esc(r['user_agent'])}</td><td>{esc(r['referrer']) or 'Direct'}</td></tr>"
         for r in viewer_rows
+    )
+    visitor_summary_table = "".join(
+        f"<tr><td>{esc(r['visitor_id'])}</td><td>{r['total_views']}</td>"
+        f"<td>{r['cases_viewed']}</td><td>{esc(r['first_viewed'])}</td>"
+        f"<td>{esc(r['last_viewed'])}</td><td>{esc(r['ip_address'])}</td>"
+        f"<td>{esc(r['user_agent'])}</td><td>{esc(r['referrer']) or 'Direct'}</td></tr>"
+        for r in visitor_summary_rows
     )
     body = f"""
     <section class="hero">
@@ -3334,16 +3370,49 @@ def superadmin_dashboard():
         <p>This area is unavailable to normal Admin and Staff accounts.</p>
         <p><a class="button" href="{url_for('private_notepad')}">📝 Open Private Notepad</a></p>
     </section>
-    <section class="card table-wrap">
-        <h2 class="center">🔎 Detailed Visitor Information</h2>
-        <p class="small">Restricted to Super Admin. Timestamps are Philippine Time. IP address, browser/device information, referrer, and anonymous visitor ID are shown here.</p>
-        <table><thead><tr><th>Case</th><th>Category</th><th>Visitor ID</th><th>Viewed At</th><th>IP Address</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
-        <tbody>{viewer_table or '<tr><td colspan="7">No public case views yet.</td></tr>'}</tbody></table>
+    <section class="card superadmin-tabs-card">
+        <div class="superadmin-tabs" role="tablist" aria-label="Super Admin sections">
+            <button type="button" class="superadmin-tab active" onclick="showSuperAdminTab('overview-tab', this)">System Overview</button>
+            <button type="button" class="superadmin-tab" onclick="showSuperAdminTab('viewer-tab', this)">👁️ Viewer Information</button>
+            <button type="button" class="superadmin-tab" onclick="showSuperAdminTab('audit-tab', this)">Audit Activity</button>
+        </div>
+        <div id="overview-tab" class="superadmin-tab-panel active">
+            <h2 class="center">System Overview</h2>
+            <p class="center small">Registered accounts, case status, and private Super Admin tools.</p>
+        </div>
+        <div id="viewer-tab" class="superadmin-tab-panel">
+            <h2 class="center">🔎 Detailed Viewer Information</h2>
+            <p class="small">Super Admin only. This tab shows anonymous visitor information collected when a public case page is opened. Timestamps are Philippine Time. The system records an anonymous visitor ID, number of views, cases viewed, first/last viewing time, IP address, browser/device information, and referrer.</p>
+            <div class="grid viewer-detail-stats">
+                <div class="card stat"><span class="stat-number">{counts['views']}</span>Total Case Views</div>
+                <div class="card stat"><span class="stat-number">{counts['unique_viewers']}</span>Unique Visitors</div>
+                <div class="card stat"><span class="stat-number">{len(visitor_summary_rows)}</span>Tracked Visitor IDs</div>
+            </div>
+            <section class="card table-wrap">
+                <h3 class="center">Visitor Summary</h3>
+                <table><thead><tr><th>Visitor ID</th><th>Total Views</th><th>Cases Viewed</th><th>First Viewed</th><th>Last Viewed</th><th>IP Address</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
+                <tbody>{visitor_summary_table or '<tr><td colspan="8">No public case views yet.</td></tr>'}</tbody></table>
+            </section>
+            <section class="card table-wrap">
+                <h3 class="center">Detailed View Log</h3>
+                <table><thead><tr><th>Case</th><th>Category</th><th>Visitor ID</th><th>Viewed At</th><th>IP Address</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
+                <tbody>{viewer_table or '<tr><td colspan="7">No public case views yet.</td></tr>'}</tbody></table>
+            </section>
+        </div>
+        <div id="audit-tab" class="superadmin-tab-panel">
+            <h2 class="center">Recent Audit Activity</h2>
+            <div class="table-wrap"><table><thead><tr><th>User</th><th>Action</th><th>Target</th><th>Time</th></tr></thead><tbody>{audit_table or '<tr><td colspan="4">No audit activity</td></tr>'}</tbody></table></div>
+        </div>
     </section>
-    <section class="card table-wrap">
-        <h2 class="center">Recent Audit Activity</h2>
-        <table><thead><tr><th>User</th><th>Action</th><th>Target</th><th>Time</th></tr></thead><tbody>{audit_table or '<tr><td colspan="4">No audit activity</td></tr>'}</tbody></table>
-    </section>
+    <script>
+    function showSuperAdminTab(tabId, button) {{
+        document.querySelectorAll('.superadmin-tab-panel').forEach(function(panel) {{ panel.classList.remove('active'); }});
+        document.querySelectorAll('.superadmin-tab').forEach(function(tab) {{ tab.classList.remove('active'); }});
+        var panel = document.getElementById(tabId);
+        if (panel) panel.classList.add('active');
+        if (button) button.classList.add('active');
+    }}
+    </script>
     """
     return render_page("Super Admin", body, staff_page=True)
 
