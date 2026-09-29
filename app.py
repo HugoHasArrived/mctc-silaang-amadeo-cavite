@@ -9,6 +9,7 @@ import re
 from pathlib import Path
 from functools import wraps
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 from urllib.parse import quote_plus
 from flask import (
     Flask,
@@ -240,6 +241,41 @@ def esc(value):
     return html.escape(str(value or ""), quote=True)
 def now():
     return datetime.utcnow().isoformat(timespec="seconds")
+def viewer_now():
+    return datetime.now(timezone.utc).astimezone(ZoneInfo("Asia/Manila")).strftime("%Y-%m-%d %H:%M:%S")
+
+def get_visitor_id():
+    visitor_id = session.get("visitor_id")
+    if not visitor_id:
+        visitor_id = secrets.token_hex(16)
+        session["visitor_id"] = visitor_id
+    return visitor_id
+
+def log_case_view(case_row):
+    """Record a public case-detail view for staff/super-admin analytics."""
+    try:
+        connection = db()
+        connection.execute(
+            """
+            INSERT INTO viewer_logs
+            (case_id, case_number, case_category, visitor_id, viewed_at, ip_address, user_agent, referrer)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                case_row["id"],
+                str(case_row["case_number"] or ""),
+                str(case_row["case_category"] or ""),
+                get_visitor_id(),
+                viewer_now(),
+                (request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or request.remote_addr or ""),
+                request.headers.get("User-Agent", "")[:1000],
+                request.headers.get("Referer", "")[:1000],
+            ),
+        )
+        durable_commit(connection)
+        connection.close()
+    except Exception as error:
+        print("Viewer logging failed:", type(error).__name__, error)
 def current_theme():
     theme = session.get("theme", "light")
     return theme if theme in {"light", "dark"} else "light"
@@ -510,6 +546,18 @@ def initialize_database():
             action TEXT NOT NULL,
             target TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS viewer_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            case_id INTEGER NOT NULL,
+            case_number TEXT NOT NULL DEFAULT '',
+            case_category TEXT NOT NULL DEFAULT '',
+            visitor_id TEXT NOT NULL,
+            viewed_at TEXT NOT NULL,
+            ip_address TEXT NOT NULL DEFAULT '',
+            user_agent TEXT NOT NULL DEFAULT '',
+            referrer TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
         );
         CREATE TABLE IF NOT EXISTS private_notepad (
             id INTEGER PRIMARY KEY CHECK (id = 1),
@@ -1670,6 +1718,7 @@ def public_case(case_id):
     connection.close()
     if case is None:
         abort(404)
+    log_case_view(case)
     hearing_html = ""
     for hearing in hearings:
         hearing_html += f"""
@@ -2036,6 +2085,8 @@ def staff_dashboard():
         "cases": connection.execute("SELECT COUNT(*) FROM cases").fetchone()[0],
         "notices": connection.execute("SELECT COUNT(*) FROM notices").fetchone()[0],
         "laws": connection.execute("SELECT COUNT(*) FROM legal_resources").fetchone()[0],
+        "views": connection.execute("SELECT COUNT(*) FROM viewer_logs").fetchone()[0],
+        "unique_viewers": connection.execute("SELECT COUNT(DISTINCT visitor_id) FROM viewer_logs").fetchone()[0],
     }
     schedule = connection.execute("SELECT file_name FROM schedule WHERE id = 1").fetchone()
     connection.close()
@@ -2049,12 +2100,17 @@ def staff_dashboard():
         <div class="card stat"><span class="stat-number">{counts['cases']}</span>{tr('cases')}</div>
         <div class="card stat"><span class="stat-number">{counts['notices']}</span>{tr('notices')}</div>
         <div class="card stat"><span class="stat-number">{counts['laws']}</span>{tr('laws')}</div>
+        <div class="card stat"><span class="stat-number">{counts['views']}</span>Case Views</div>
+        <div class="card stat"><span class="stat-number">{counts['unique_viewers']}</span>Unique Viewers</div>
     </section>
     <section class="card">
         <h2 class="center">Quick Actions</h2>
         <div class="staff-quick-row">
             <a class="card centered" href="{url_for('staff_cases')}">
                 <h3>📋 {tr('cases')}</h3><p>Add, edit and delete cases.</p>
+            </a>
+            <a class="card centered" href="{url_for('staff_viewers')}">
+                <h3>👁️ Viewer Activity</h3><p>View case viewer counts and viewing times.</p>
             </a>
             <a class="card centered" href="{url_for('staff_calendar')}">
                 <h3>📅 {tr('calendar')}</h3><p>Upload the Tuesday schedule.</p>
@@ -3114,6 +3170,57 @@ def private_notepad():
     """
     return render_page("Private Notepad", body, staff_page=True)
 
+@app.route("/staff/viewers")
+@staff_required
+def staff_viewers():
+    connection = db()
+    summary_rows = connection.execute(
+        """
+        SELECT case_id, case_number, case_category,
+               COUNT(*) AS total_views,
+               COUNT(DISTINCT visitor_id) AS unique_viewers,
+               MAX(viewed_at) AS last_viewed
+        FROM viewer_logs
+        GROUP BY case_id, case_number, case_category
+        ORDER BY last_viewed DESC
+        """
+    ).fetchall()
+    recent_rows = connection.execute(
+        """
+        SELECT case_number, case_category, viewed_at
+        FROM viewer_logs
+        ORDER BY id DESC
+        LIMIT 100
+        """
+    ).fetchall()
+    connection.close()
+    summary_table = "".join(
+        f"<tr><td>{esc(r['case_number'])}</td><td>{esc(r['case_category'])}</td>"
+        f"<td>{r['unique_viewers']}</td><td>{r['total_views']}</td><td>{esc(r['last_viewed'])}</td></tr>"
+        for r in summary_rows
+    )
+    recent_table = "".join(
+        f"<tr><td>{esc(r['case_number'])}</td><td>{esc(r['case_category'])}</td><td>{esc(r['viewed_at'])}</td></tr>"
+        for r in recent_rows
+    )
+    body = f"""
+    <section class="hero">
+        <h1>👁️ Viewer Activity</h1>
+        <p>Case-view statistics for authorized staff. Visitor identity and technical details are restricted to Super Admin.</p>
+    </section>
+    <section class="card table-wrap">
+        <h2 class="center">Case Viewer Summary</h2>
+        <table><thead><tr><th>Case Number</th><th>Category</th><th>Unique Viewers</th><th>Total Views</th><th>Last Viewed</th></tr></thead>
+        <tbody>{summary_table or '<tr><td colspan="5">No public case views yet.</td></tr>'}</tbody></table>
+    </section>
+    <section class="card table-wrap">
+        <h2 class="center">Recent Case Views</h2>
+        <table><thead><tr><th>Case Number</th><th>Category</th><th>Viewed At (Philippine Time)</th></tr></thead>
+        <tbody>{recent_table or '<tr><td colspan="3">No public case views yet.</td></tr>'}</tbody></table>
+    </section>
+    """
+    return render_page("Viewer Activity", body, staff_page=True)
+
 @app.route("/staff/super-admin")
 @superadmin_required
 def superadmin_dashboard():
@@ -3126,6 +3233,8 @@ def superadmin_dashboard():
         "laws": connection.execute("SELECT COUNT(*) FROM legal_resources").fetchone()[0],
         "requirements": connection.execute("SELECT COUNT(*) FROM requirements").fetchone()[0],
         "audit": connection.execute("SELECT COUNT(*) FROM audit_logs").fetchone()[0],
+        "views": connection.execute("SELECT COUNT(*) FROM viewer_logs").fetchone()[0],
+        "unique_viewers": connection.execute("SELECT COUNT(DISTINCT visitor_id) FROM viewer_logs").fetchone()[0],
     }
     staff_rows = connection.execute(
         "SELECT username, role, active FROM staff ORDER BY username"
@@ -3135,6 +3244,13 @@ def superadmin_dashboard():
     ).fetchall()
     audit_rows = connection.execute(
         "SELECT username, action, target, created_at FROM audit_logs ORDER BY id DESC LIMIT 100"
+    ).fetchall()
+    viewer_rows = connection.execute(
+        """
+        SELECT case_number, case_category, visitor_id, viewed_at, ip_address, user_agent, referrer
+        FROM viewer_logs
+        ORDER BY id DESC LIMIT 200
+        """
     ).fetchall()
     connection.close()
     staff_table = "".join(
@@ -3149,6 +3265,12 @@ def superadmin_dashboard():
         f"<tr><td>{esc(r['username'])}</td><td>{esc(r['action'])}</td><td>{esc(r['target'])}</td><td>{esc(r['created_at'])}</td></tr>"
         for r in audit_rows
     )
+    viewer_table = "".join(
+        f"<tr><td>{esc(r['case_number'])}</td><td>{esc(r['case_category'])}</td>"
+        f"<td>{esc(r['visitor_id'])}</td><td>{esc(r['viewed_at'])}</td><td>{esc(r['ip_address'])}</td>"
+        f"<td>{esc(r['user_agent'])}</td><td>{esc(r['referrer']) or 'Direct'}</td></tr>"
+        for r in viewer_rows
+    )
     body = f"""
     <section class="hero">
         <h1>🛡️ Super Admin</h1>
@@ -3156,7 +3278,7 @@ def superadmin_dashboard():
         <p class="small">Full system overview for the authorized super administrator. Passwords and reset tokens are never displayed.</p>
     </section>
     <section class="grid">
-        {''.join(f'<div class="card stat"><span class="stat-number">{value}</span>{label}</div>' for label, value in [("Staff Accounts", counts["staff"]),("Cases", counts["cases"]),("Hearings", counts["hearings"]),("Announcements", counts["notices"]),("Legal Resources", counts["laws"]),("Requirements", counts["requirements"]),("Audit Entries", counts["audit"])])}
+        {''.join(f'<div class="card stat"><span class="stat-number">{value}</span>{label}</div>' for label, value in [("Staff Accounts", counts["staff"]),("Cases", counts["cases"]),("Hearings", counts["hearings"]),("Announcements", counts["notices"]),("Legal Resources", counts["laws"]),("Requirements", counts["requirements"]),("Audit Entries", counts["audit"]),("Case Views", counts["views"]),("Unique Viewers", counts["unique_viewers"])])}
     </section>
     <section class="card table-wrap">
         <h2 class="center">Registered Accounts</h2>
@@ -3170,6 +3292,12 @@ def superadmin_dashboard():
         <h2>🔒 Private Super Admin Area</h2>
         <p>This area is unavailable to normal Admin and Staff accounts.</p>
         <p><a class="button" href="{url_for('private_notepad')}">📝 Open Private Notepad</a></p>
+    </section>
+    <section class="card table-wrap">
+        <h2 class="center">🔎 Detailed Visitor Information</h2>
+        <p class="small">Restricted to Super Admin. Timestamps are Philippine Time. IP address, browser/device information, referrer, and anonymous visitor ID are shown here.</p>
+        <table><thead><tr><th>Case</th><th>Category</th><th>Visitor ID</th><th>Viewed At</th><th>IP Address</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
+        <tbody>{viewer_table or '<tr><td colspan="7">No public case views yet.</td></tr>'}</tbody></table>
     </section>
     <section class="card table-wrap">
         <h2 class="center">Recent Audit Activity</h2>
