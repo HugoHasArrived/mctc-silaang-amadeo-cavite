@@ -953,8 +953,31 @@ a:hover { text-decoration: underline; }
 .staff-interface .card h2,
 .staff-interface .card h3,
 .staff-interface .hero,
-.staff-interface .stat {
+.staff-interface  .stat {
     text-align: center;
+}
+.unique-viewers-stat {
+    grid-column: 1 / -1;
+}
+.viewer-definition {
+    margin: 0 0 24px;
+    padding: 18px 22px;
+    border-radius: 16px;
+    background: var(--surface-soft);
+    border: 1px solid var(--border);
+    text-align: left;
+}
+.viewer-definition h3 {
+    margin: 0 0 10px;
+}
+.viewer-definition p {
+    margin: 7px 0;
+    line-height: 1.55;
+}
+@media (max-width: 650px) {
+    .unique-viewers-stat {
+        grid-column: auto;
+    }
 }
 .staff-interface .actions {
     justify-content: center;
@@ -2113,7 +2136,7 @@ def staff_dashboard():
         <div class="card stat"><span class="stat-number">{counts['notices']}</span>{tr('notices')}</div>
         <div class="card stat"><span class="stat-number">{counts['laws']}</span>{tr('laws')}</div>
         <div class="card stat"><span class="stat-number">{counts['views']}</span>Case Views</div>
-        <div class="card stat"><span class="stat-number">{counts['unique_viewers']}</span>Unique Viewers</div>
+        <div class="card stat unique-viewers-stat"><span class="stat-number">{counts['unique_viewers']}</span>Unique Viewers</div>
     </section>
     <section class="card">
         <h2 class="center">Quick Actions</h2>
@@ -3219,6 +3242,12 @@ def staff_viewers():
     <section class="hero">
         <h1>👁️ Viewer Activity</h1>
         <p>Case-view statistics for authorized staff. Visitor identity and technical details are restricted to Super Admin.</p>
+    </section>
+    <section class="viewer-definition">
+        <h3>What do Unique Views and Total Views mean?</h3>
+        <p><strong>Unique Views:</strong> the number of different tracked visitors who viewed a case. Repeated visits from the same visitor are counted only once.</p>
+        <p><strong>Total Views:</strong> the total number of recorded case-page views, including repeated visits from the same visitor.</p>
+        <p><strong>Example:</strong> If Visitor A opens a case 3 times and Visitor B opens it once, there are <strong>2 Unique Views</strong> and <strong>4 Total Views</strong>.</p>
     </section>
     <section class="card table-wrap">
         <h2 class="center">Case Viewer Summary</h2>
