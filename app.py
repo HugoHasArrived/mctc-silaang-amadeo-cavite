@@ -3651,7 +3651,7 @@ def superadmin_dashboard():
                country, region, city, postal_code, latitude, longitude, timezone, isp, organization
         FROM viewer_logs
         {where_sql}
-        ORDER BY id DESC LIMIT 500
+        ORDER BY id DESC LIMIT 200
         """, params
     ).fetchall()
     visitor_summary_rows = connection.execute(
@@ -4070,6 +4070,7 @@ def superadmin_dashboard():
         </div>
         <div id="viewer-tab" class="superadmin-tab-panel">
             <h2 class="center">🔎 Detailed Viewer Information</h2>
+            <p class="small" style="text-align:center;">Viewer data is loaded in summarized tables to keep the Super Admin dashboard responsive.</p>
             <p class="small">Super Admin only. This dashboard organizes anonymous case-view activity into filters, visitor summaries, case trends, time-of-day activity, and the detailed log. Location remains approximate and IP-based; it is not exact GPS.</p>
 
             <section class="card" style="margin-bottom:16px;">
@@ -4168,7 +4169,55 @@ def superadmin_dashboard():
         </div>
         {superadmin_extra_panels}
     </section>
+    <script>
     var viewerAutoRefresh = null;
+
+    function showSuperAdminTab(tabId, button) {{
+        document.querySelectorAll('.superadmin-tab-panel').forEach(function(panel) {{
+            panel.classList.remove('active');
+        }});
+        document.querySelectorAll('.superadmin-tab').forEach(function(tab) {{
+            tab.classList.remove('active');
+        }});
+        var panel = document.getElementById(tabId);
+        if (panel) panel.classList.add('active');
+        if (button) button.classList.add('active');
+        if (window.history && window.history.replaceState) {{
+            try {{
+                window.history.replaceState(null, '', window.location.pathname + window.location.search + '#' + tabId);
+            }} catch (e) {{}}
+        }}
+    }}
+
+    function openSuperAdminTabFromHash() {{
+        var hash = window.location.hash ? window.location.hash.substring(1) : 'overview-tab';
+        var panel = document.getElementById(hash);
+        if (!panel || !panel.classList.contains('superadmin-tab-panel')) hash = 'overview-tab';
+        var button = document.querySelector(".superadmin-tab[onclick*=\"'" + hash + "'\"]");
+        showSuperAdminTab(hash, button);
+    }}
+
+    function refreshViewerTab() {{
+        var current = new URL(window.location.href);
+        current.hash = 'viewer-tab';
+        window.location.href = current.toString();
+    }}
+
+    function toggleAutoRefresh() {{
+        var button = document.getElementById('auto-refresh-button');
+        if (viewerAutoRefresh) {{
+            clearInterval(viewerAutoRefresh);
+            viewerAutoRefresh = null;
+            if (button) button.textContent = '⏱ Auto Refresh: Off';
+        }} else {{
+            viewerAutoRefresh = setInterval(refreshViewerTab, 30000);
+            if (button) button.textContent = '⏱ Auto Refresh: On (30s)';
+        }}
+    }}
+
+    document.addEventListener('DOMContentLoaded', openSuperAdminTabFromHash);
+    window.addEventListener('hashchange', openSuperAdminTabFromHash);
+    </script>
     function showSuperAdminTab(tabId, button) {{
         document.querySelectorAll('.superadmin-tab-panel').forEach(function(panel) {{ panel.classList.remove('active'); }});
         document.querySelectorAll('.superadmin-tab').forEach(function(tab) {{ tab.classList.remove('active'); }});
