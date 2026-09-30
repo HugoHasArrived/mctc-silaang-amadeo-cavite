@@ -1208,6 +1208,29 @@ a:hover { text-decoration: underline; }
 .viewer-chip { display: inline-block; padding: 5px 9px; border-radius: 999px; background: var(--surface-soft); border: 1px solid var(--border); font-size: 12px; font-weight: 700; }
 .viewer-live-dot { width: 9px; height: 9px; background: #2ecc71; border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 0 4px rgba(46,204,113,.12); }
 .viewer-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.viewer-command-bar { margin: 16px 0; }
+.viewer-command-head { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+.viewer-live-tools { display:grid; grid-template-columns:2fr 1fr 1fr 1.3fr; gap:12px; align-items:end; margin-top:16px; }
+.viewer-live-tools .field { display:flex; flex-direction:column; gap:6px; }
+.viewer-shortcut-box { display:flex !important; flex-direction:row !important; flex-wrap:wrap; align-items:end; gap:6px !important; }
+.sortable-viewer-header { cursor:pointer; user-select:none; }
+.sortable-viewer-header::after { content:' ↕'; opacity:.45; font-size:11px; }
+.inspectable-viewer-row { cursor:pointer; transition: transform .12s ease, background .12s ease; }
+.inspectable-viewer-row:hover { background: var(--surface-soft); }
+.viewer-inspector { position:fixed; inset:0; display:none; z-index:9999; }
+.viewer-inspector.open { display:block; }
+.viewer-inspector-backdrop { position:absolute; inset:0; background:rgba(0,0,0,.48); backdrop-filter: blur(2px); }
+.viewer-inspector-panel { position:absolute; right:0; top:0; height:100%; width:min(560px,94vw); background:var(--surface); border-left:1px solid var(--border); box-shadow:-12px 0 40px rgba(0,0,0,.22); padding:22px; overflow:auto; animation:viewerSlideIn .18s ease-out; }
+.viewer-inspector-header { display:flex; align-items:flex-start; justify-content:space-between; gap:14px; border-bottom:1px solid var(--border); padding-bottom:14px; margin-bottom:16px; }
+.viewer-inspector-content { display:grid; grid-template-columns:1fr; gap:10px; }
+.viewer-inspector-item { padding:12px 14px; border:1px solid var(--border); border-radius:12px; background:var(--surface-soft); }
+.viewer-inspector-item span { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.05em; opacity:.7; margin-bottom:4px; }
+.viewer-inspector-item strong { display:block; overflow-wrap:anywhere; }
+.viewer-compact .viewer-detail-table td, .viewer-compact .viewer-detail-table th { padding:5px 7px; font-size:11px; }
+.viewer-compact .card { margin-bottom:10px; }
+@keyframes viewerSlideIn { from { transform:translateX(20px); opacity:.65; } to { transform:translateX(0); opacity:1; } }
+@media (max-width: 900px) { .viewer-live-tools { grid-template-columns:1fr 1fr; } }
+@media (max-width: 650px) { .viewer-live-tools { grid-template-columns:1fr; } .viewer-command-head { align-items:stretch; } }
 .viewer-small-table td, .viewer-small-table th { font-size: 13px; padding: 9px 10px; }
 .viewer-detail-table td, .viewer-detail-table th { font-size: 12px; }
 @media (max-width: 1100px) {
@@ -3921,8 +3944,8 @@ def superadmin_dashboard():
     )
     superadmin_extra_panels = ""
     if is_primary_superadmin():
-        superadmin_extra_tabs += "<button type='button' class='superadmin-tab' onclick=\"showSuperAdminTab('private-tab', this)\">🔒 Private Workspace</button>"
-        superadmin_extra_tabs += "<button type='button' class='superadmin-tab' onclick=\"showSuperAdminTab('control-tab', this)\">⚙️ Control Center</button>"
+        superadmin_extra_tabs += "<button type='button' class='superadmin-tab' data-tab='private-tab'>🔒 Private Workspace</button>"
+        superadmin_extra_tabs += "<button type='button' class='superadmin-tab' data-tab='control-tab'>⚙️ Control Center</button>"
 
     upcoming_hearings = connection.execute(
         "SELECT COUNT(*) FROM hearings WHERE hearing_date >= ? AND hearing_date <= ? AND hearing_status = 'Scheduled'",
@@ -4149,18 +4172,38 @@ def superadmin_dashboard():
                 </div>
             </section>
 
+            <section class="card viewer-command-bar">
+                <div class="viewer-command-head">
+                    <div>
+                        <h3 style="margin:0;">⚡ Interactive Viewer Console</h3>
+                        <p class="small" style="margin:4px 0 0;">Use live search, quick filters, table sorting, and row inspection without reloading the page.</p>
+                    </div>
+                    <div class="viewer-actions">
+                        <button type="button" class="button secondary" id="viewer-density-button">↕ Compact Mode</button>
+                        <button type="button" class="button secondary" id="viewer-clear-button">✕ Clear Search</button>
+                    </div>
+                </div>
+                <div class="viewer-live-tools">
+                    <div class="field"><label for="viewer-live-search">Live Search</label><input id="viewer-live-search" type="search" placeholder="Search loaded visitor/view records instantly..."></div>
+                    <div class="field"><label for="viewer-live-type">Visitor Type</label><select id="viewer-live-type"><option value="">All</option><option value="Returning">Returning</option><option value="First recorded">First recorded</option></select></div>
+                    <div class="field"><label for="viewer-page-size">Rows per page</label><select id="viewer-page-size"><option value="25">25</option><option value="50" selected>50</option><option value="100">100</option><option value="200">200</option></select></div>
+                    <div class="field viewer-shortcut-box"><label>Shortcuts</label><span class="viewer-chip">/ Search</span><span class="viewer-chip">1–8 Tabs</span><span class="viewer-chip">Esc Close</span></div>
+                </div>
+                <div id="viewer-result-count" class="small center" aria-live="polite"></div>
+            </section>
+
             <section class="card table-wrap">
                 <h3 class="center">👤 Visitor Directory</h3>
                 <p class="small">One row per anonymous visitor. The directory combines activity, timing, location, network, and device information so Super Admin can review a visitor without relying on a map.</p>
                 <div class="table-scroll-hint small">← Scroll horizontally to see all visitor fields →</div>
-                <table class="viewer-detail-table"><thead><tr><th>Visitor ID</th><th>Visitor Type</th><th>Total Views</th><th>Cases Viewed</th><th>Latest Case</th><th>Category</th><th>First Seen</th><th>Last Seen</th><th>Observed Span</th><th>Approx. Location</th><th>Postal</th><th>Timezone</th><th>IP</th><th>Network / ISP</th><th>Browser</th><th>Operating System</th><th>Device</th><th>Referrer</th></tr></thead>
+                <table id="visitor-directory-table" class="viewer-detail-table interactive-viewer-table"><thead><tr><th data-sort="text">Visitor ID</th><th>Visitor Type</th><th>Total Views</th><th>Cases Viewed</th><th>Latest Case</th><th>Category</th><th>First Seen</th><th>Last Seen</th><th>Observed Span</th><th>Approx. Location</th><th>Postal</th><th>Timezone</th><th>IP</th><th>Network / ISP</th><th>Browser</th><th>Operating System</th><th>Device</th><th>Referrer</th></tr></thead>
                 <tbody>{visitor_summary_table or '<tr><td colspan="18">No matching visitors.</td></tr>'}</tbody></table>
             </section>
 
             <section class="card table-wrap">
                 <h3 class="center">🧾 Detailed View Log</h3>
                 <p class="small">The detailed log records each public case-page opening separately. Repeated openings appear as separate view events.</p>
-                <table class="viewer-detail-table"><thead><tr><th>Case</th><th>Category</th><th>Visitor ID</th><th>Viewed At</th><th>Approx. Location</th><th>Postal</th><th>Coordinates</th><th>Timezone</th><th>IP</th><th>Network / ISP</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
+                <table id="viewer-detail-log-table" class="viewer-detail-table interactive-viewer-table"><thead><tr><th data-sort="text">Case</th><th>Category</th><th>Visitor ID</th><th>Viewed At</th><th>Approx. Location</th><th>Postal</th><th>Coordinates</th><th>Timezone</th><th>IP</th><th>Network / ISP</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
                 <tbody>{viewer_table or '<tr><td colspan="12">No matching case views.</td></tr>'}</tbody></table>
             </section>
         </div>
@@ -4170,8 +4213,19 @@ def superadmin_dashboard():
         </div>
         {superadmin_extra_panels}
     </section>
+    <div id="viewer-inspector" class="viewer-inspector" aria-hidden="true">
+        <div class="viewer-inspector-backdrop"></div>
+        <section class="viewer-inspector-panel" role="dialog" aria-modal="true" aria-labelledby="viewer-inspector-title">
+            <div class="viewer-inspector-header">
+                <div><h3 id="viewer-inspector-title" style="margin:0;">Viewer Details</h3><p id="viewer-inspector-subtitle" class="small" style="margin:4px 0 0;"></p></div>
+                <button type="button" class="button secondary" id="viewer-inspector-close">✕ Close</button>
+            </div>
+            <div id="viewer-inspector-content" class="viewer-inspector-content"></div>
+        </section>
+    </div>
     <script>
     let viewerAutoRefresh = null;
+    let viewerCompactMode = false;
 
     function activateSuperAdminTab(tabId) {{
         const panels = document.querySelectorAll('.superadmin-tab-panel');
@@ -4187,19 +4241,22 @@ def superadmin_dashboard():
             const url = new URL(window.location.href);
             url.hash = tabId;
             window.history.replaceState(null, '', url.toString());
+            localStorage.setItem('superadmin:last-tab', tabId);
         }} catch (e) {{}}
+        if (tabId === 'viewer-tab') {{ updateViewerInteractiveTools(); }}
         return false;
     }}
 
-    // Keep the function global for compatibility with older inline links.
     window.showSuperAdminTab = function(tabId, button) {{
         activateSuperAdminTab(tabId);
-        if (button) button.classList.add('active');
         return false;
     }};
 
     function openSuperAdminTabFromHash() {{
-        const hash = window.location.hash ? window.location.hash.slice(1) : 'overview-tab';
+        let hash = window.location.hash ? window.location.hash.slice(1) : '';
+        if (!hash) {{
+            try {{ hash = localStorage.getItem('superadmin:last-tab') || 'overview-tab'; }} catch (e) {{ hash = 'overview-tab'; }}
+        }}
         activateSuperAdminTab(hash);
     }}
 
@@ -4221,14 +4278,146 @@ def superadmin_dashboard():
         }}
     }}
 
+    function normalizeText(value) {{ return String(value || '').toLowerCase().trim(); }}
+
+    function updateViewerInteractiveTools() {{
+        const search = document.getElementById('viewer-live-search');
+        const type = document.getElementById('viewer-live-type');
+        if (!search || !type) return;
+        filterInteractiveRows();
+    }}
+
+    function filterInteractiveRows() {{
+        const searchEl = document.getElementById('viewer-live-search');
+        const typeEl = document.getElementById('viewer-live-type');
+        const sizeEl = document.getElementById('viewer-page-size');
+        const counter = document.getElementById('viewer-result-count');
+        const query = normalizeText(searchEl ? searchEl.value : '');
+        const type = normalizeText(typeEl ? typeEl.value : '');
+        const pageSize = parseInt(sizeEl ? sizeEl.value : '50', 10) || 50;
+        let matched = 0;
+        let shown = 0;
+        document.querySelectorAll('.interactive-viewer-table').forEach(function(table) {{
+            const rows = Array.from(table.querySelectorAll('tbody tr'));
+            rows.forEach(function(row) {{
+                const text = normalizeText(row.innerText);
+                const cells = row.querySelectorAll('td');
+                const visitorType = normalizeText(cells.length > 1 ? cells[1].innerText : '');
+                const matchesSearch = !query || text.includes(query);
+                const matchesType = !type || visitorType === type;
+                const matches = matchesSearch && matchesType;
+                if (matches) matched += 1;
+                const visible = matches && shown < pageSize;
+                row.style.display = visible ? '' : 'none';
+                if (visible) shown += 1;
+            }});
+        }});
+        if (counter) counter.textContent = matched + ' matching loaded record(s) • showing up to ' + pageSize;
+    }}
+
+    function sortInteractiveTable(table, columnIndex) {{
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const current = table.getAttribute('data-sort-column');
+        const ascending = current !== String(columnIndex) || table.getAttribute('data-sort-dir') !== 'asc';
+        rows.sort(function(a, b) {{
+            const av = normalizeText(a.children[columnIndex] ? a.children[columnIndex].innerText : '');
+            const bv = normalizeText(b.children[columnIndex] ? b.children[columnIndex].innerText : '');
+            const an = Number(av.replace(/[^0-9.-]/g, ''));
+            const bn = Number(bv.replace(/[^0-9.-]/g, ''));
+            let result;
+            if (av && bv && !Number.isNaN(an) && !Number.isNaN(bn) && /^[-+]?\d[\d,. ]*$/.test(av) && /^[-+]?\d[\d,. ]*$/.test(bv)) result = an - bn;
+            else result = av.localeCompare(bv, undefined, {{ numeric: true, sensitivity: 'base' }});
+            return ascending ? result : -result;
+        }});
+        rows.forEach(function(row) {{ tbody.appendChild(row); }});
+        table.setAttribute('data-sort-column', String(columnIndex));
+        table.setAttribute('data-sort-dir', ascending ? 'asc' : 'desc');
+        filterInteractiveRows();
+    }}
+
+    function openViewerInspector(row) {{
+        if (!row || !row.children || !row.parentElement) return;
+        const table = row.closest('table');
+        const headers = table ? Array.from(table.querySelectorAll('thead th')).map(function(th) {{ return th.innerText.trim(); }}) : [];
+        const cells = Array.from(row.children).map(function(td) {{ return td.innerText.trim(); }});
+        const content = document.getElementById('viewer-inspector-content');
+        const title = document.getElementById('viewer-inspector-title');
+        const subtitle = document.getElementById('viewer-inspector-subtitle');
+        if (!content) return;
+        if (title) title.textContent = cells[0] || 'Viewer Details';
+        if (subtitle) subtitle.textContent = table && table.id === 'visitor-directory-table' ? 'Visitor profile from the loaded directory' : 'Individual recorded case-view event';
+        content.innerHTML = headers.map(function(label, i) {{
+            const value = cells[i] || '—';
+            return '<div class="viewer-inspector-item"><span>' + label.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</span><strong>' + value.replace(/</g,'&lt;').replace(/>/g,'&gt;') + '</strong></div>';
+        }}).join('');
+        const modal = document.getElementById('viewer-inspector');
+        if (modal) {{ modal.classList.add('open'); modal.setAttribute('aria-hidden','false'); }}
+    }}
+
+    function closeViewerInspector() {{
+        const modal = document.getElementById('viewer-inspector');
+        if (modal) {{ modal.classList.remove('open'); modal.setAttribute('aria-hidden','true'); }}
+    }}
+
+    function initInteractiveViewerTables() {{
+        document.querySelectorAll('.interactive-viewer-table').forEach(function(table) {{
+            table.querySelectorAll('thead th').forEach(function(th, index) {{
+                th.classList.add('sortable-viewer-header');
+                th.title = 'Click to sort';
+                th.addEventListener('click', function() {{ sortInteractiveTable(table, index); }});
+            }});
+            table.querySelectorAll('tbody tr').forEach(function(row) {{
+                if (!row.querySelector('td[colspan]')) {{
+                    row.classList.add('inspectable-viewer-row');
+                    row.title = 'Click to inspect this record';
+                    row.addEventListener('click', function(event) {{
+                        if (event.target.closest('a,button,input,select')) return;
+                        openViewerInspector(row);
+                    }});
+                }}
+            }});
+        }});
+    }}
+
     document.addEventListener('click', function(event) {{
         const tab = event.target.closest('.superadmin-tab[data-tab]');
-        if (!tab) return;
-        event.preventDefault();
-        activateSuperAdminTab(tab.getAttribute('data-tab'));
+        if (tab) {{ event.preventDefault(); activateSuperAdminTab(tab.getAttribute('data-tab')); return; }}
+        if (event.target.closest('#viewer-inspector-close') || event.target.classList.contains('viewer-inspector-backdrop')) {{ closeViewerInspector(); }}
     }});
 
-    document.addEventListener('DOMContentLoaded', openSuperAdminTabFromHash);
+    document.addEventListener('DOMContentLoaded', function() {{
+        openSuperAdminTabFromHash();
+        initInteractiveViewerTables();
+        const search = document.getElementById('viewer-live-search');
+        const type = document.getElementById('viewer-live-type');
+        const size = document.getElementById('viewer-page-size');
+        if (search) search.addEventListener('input', filterInteractiveRows);
+        if (type) type.addEventListener('change', filterInteractiveRows);
+        if (size) size.addEventListener('change', filterInteractiveRows);
+        const clear = document.getElementById('viewer-clear-button');
+        if (clear) clear.addEventListener('click', function() {{ if (search) search.value = ''; if (type) type.value = ''; filterInteractiveRows(); }});
+        const density = document.getElementById('viewer-density-button');
+        if (density) density.addEventListener('click', function() {{ viewerCompactMode = !viewerCompactMode; document.body.classList.toggle('viewer-compact', viewerCompactMode); density.textContent = viewerCompactMode ? '↕ Spacious Mode' : '↕ Compact Mode'; }});
+        filterInteractiveRows();
+    }});
+
+    document.addEventListener('keydown', function(event) {{
+        if (event.key === 'Escape') {{ closeViewerInspector(); return; }}
+        const tag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+        if (event.key === '/' && !['input','textarea','select'].includes(tag)) {{
+            const search = document.getElementById('viewer-live-search');
+            if (search) {{ event.preventDefault(); search.focus(); }}
+            return;
+        }}
+        if (!['input','textarea','select'].includes(tag) && /^[1-8]$/.test(event.key)) {{
+            const tabs = Array.from(document.querySelectorAll('.superadmin-tab[data-tab]'));
+            const target = tabs[parseInt(event.key,10)-1];
+            if (target) activateSuperAdminTab(target.getAttribute('data-tab'));
+        }}
+    }});
+
     window.addEventListener('hashchange', openSuperAdminTabFromHash);
     </script>
     """
