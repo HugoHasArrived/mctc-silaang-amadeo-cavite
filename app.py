@@ -3785,7 +3785,6 @@ def superadmin_dashboard():
     latest_view_row = connection.execute(
         "SELECT case_number, case_category, visitor_id, viewed_at FROM viewer_logs ORDER BY id DESC LIMIT 1"
     ).fetchone()
-    connection.close()
     staff_table = "".join(
         f"<tr><td><strong>{esc(r['username'])}</strong></td><td>{esc(r['role'])}</td><td>{'Active' if r['active'] else 'Disabled'}</td><td>{r['login_count'] or 0}</td><td>{esc(r['last_login_at'] or 'Never')}</td></tr>"
         for r in staff_rows
@@ -3933,6 +3932,7 @@ def superadmin_dashboard():
         (viewer_clock.strftime("%Y-%m-%d"),),
     ).fetchone()[0]
     latest_audit_row = audit_rows[0] if audit_rows else None
+    connection.close()
     superadmin_extra_panels += f"""
         <div id="insights-tab" class="superadmin-tab-panel">
             <h2 class="center">📊 Smart Viewer Insights</h2>
