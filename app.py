@@ -1187,6 +1187,7 @@ a:hover { text-decoration: underline; }
 .superadmin-tab { width: auto; border: 1px solid var(--border); border-bottom: 0; border-radius: 12px 12px 0 0; padding: 12px 18px; background: var(--surface-soft); color: var(--text); font-weight: 800; cursor: pointer; }
 .superadmin-tab.active { background: var(--primary); color: #fff; }
 .superadmin-tab-panel { display: none; }
+.superadmin-tab-panel:not(.active) { content-visibility: auto; contain-intrinsic-size: 600px; }
 .superadmin-tab-panel.active { display: block; }
 .viewer-detail-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 18px 0; }
 .viewer-filter-bar {
@@ -3554,7 +3555,7 @@ def backup_database():
 def export_audit_activity_csv():
     connection = db()
     rows = connection.execute(
-        "SELECT id, username, action, target, created_at FROM audit_logs ORDER BY id DESC LIMIT 10000"
+        "SELECT id, username, action, target, created_at FROM audit_logs ORDER BY id DESC LIMIT 7500"
     ).fetchall()
     connection.close()
     output = io.StringIO()
@@ -3591,7 +3592,7 @@ def superadmin_dashboard():
         "SELECT case_number, plaintiff_name, defendant_name, case_category, status, updated_at FROM cases ORDER BY updated_at DESC LIMIT 100"
     ).fetchall()
     audit_rows = connection.execute(
-        "SELECT username, action, target, created_at FROM audit_logs ORDER BY id DESC LIMIT 100"
+        "SELECT username, action, target, created_at FROM audit_logs ORDER BY id DESC LIMIT 75"
     ).fetchall()
 
     filter_q = request.args.get("viewer_q", "").strip()
@@ -3651,7 +3652,7 @@ def superadmin_dashboard():
                country, region, city, postal_code, latitude, longitude, timezone, isp, organization
         FROM viewer_logs
         {where_sql}
-        ORDER BY id DESC LIMIT 200
+        ORDER BY id DESC LIMIT 75
         """, params
     ).fetchall()
     visitor_summary_rows = connection.execute(
@@ -4059,9 +4060,9 @@ def superadmin_dashboard():
     </section>
     <section class="card superadmin-tabs-card">
         <div class="superadmin-tabs" role="tablist" aria-label="Super Admin sections">
-            <button type="button" class="superadmin-tab active" onclick="showSuperAdminTab('overview-tab', this)">System Overview</button>
-            <button type="button" class="superadmin-tab" onclick="showSuperAdminTab('viewer-tab', this)">👁️ Viewer Information</button>
-            <button type="button" class="superadmin-tab" onclick="showSuperAdminTab('audit-tab', this)">Audit Activity</button>
+            <button type="button" class="superadmin-tab active" data-tab="overview-tab">System Overview</button>
+            <button type="button" class="superadmin-tab" data-tab="viewer-tab">👁️ Viewer Information</button>
+            <button type="button" class="superadmin-tab" data-tab="audit-tab">Audit Activity</button>
             {superadmin_extra_tabs}
         </div>
         <div id="overview-tab" class="superadmin-tab-panel active">
@@ -4170,41 +4171,46 @@ def superadmin_dashboard():
         {superadmin_extra_panels}
     </section>
     <script>
-    var viewerAutoRefresh = null;
+    let viewerAutoRefresh = null;
 
-    function showSuperAdminTab(tabId, button) {{
-        document.querySelectorAll('.superadmin-tab-panel').forEach(function(panel) {{
-            panel.classList.remove('active');
-        }});
-        document.querySelectorAll('.superadmin-tab').forEach(function(tab) {{
-            tab.classList.remove('active');
-        }});
-        var panel = document.getElementById(tabId);
-        if (panel) panel.classList.add('active');
-        if (button) button.classList.add('active');
-        if (window.history && window.history.replaceState) {{
-            try {{
-                window.history.replaceState(null, '', window.location.pathname + window.location.search + '#' + tabId);
-            }} catch (e) {{}}
+    function activateSuperAdminTab(tabId) {{
+        const panels = document.querySelectorAll('.superadmin-tab-panel');
+        const tabs = document.querySelectorAll('.superadmin-tab[data-tab]');
+        let panel = document.getElementById(tabId);
+        if (!panel || !panel.classList.contains('superadmin-tab-panel')) {{
+            tabId = 'overview-tab';
+            panel = document.getElementById(tabId);
         }}
+        panels.forEach(function(p) {{ p.classList.toggle('active', p === panel); }});
+        tabs.forEach(function(t) {{ t.classList.toggle('active', t.getAttribute('data-tab') === tabId); }});
+        try {{
+            const url = new URL(window.location.href);
+            url.hash = tabId;
+            window.history.replaceState(null, '', url.toString());
+        }} catch (e) {{}}
+        return false;
     }}
 
+    // Keep the function global for compatibility with older inline links.
+    window.showSuperAdminTab = function(tabId, button) {{
+        activateSuperAdminTab(tabId);
+        if (button) button.classList.add('active');
+        return false;
+    }};
+
     function openSuperAdminTabFromHash() {{
-        var hash = window.location.hash ? window.location.hash.substring(1) : 'overview-tab';
-        var panel = document.getElementById(hash);
-        if (!panel || !panel.classList.contains('superadmin-tab-panel')) hash = 'overview-tab';
-        var button = document.querySelector(".superadmin-tab[onclick*=\"'" + hash + "'\"]");
-        showSuperAdminTab(hash, button);
+        const hash = window.location.hash ? window.location.hash.slice(1) : 'overview-tab';
+        activateSuperAdminTab(hash);
     }}
 
     function refreshViewerTab() {{
-        var current = new URL(window.location.href);
-        current.hash = 'viewer-tab';
-        window.location.href = current.toString();
+        const url = new URL(window.location.href);
+        url.hash = 'viewer-tab';
+        window.location.href = url.toString();
     }}
 
     function toggleAutoRefresh() {{
-        var button = document.getElementById('auto-refresh-button');
+        const button = document.getElementById('auto-refresh-button');
         if (viewerAutoRefresh) {{
             clearInterval(viewerAutoRefresh);
             viewerAutoRefresh = null;
@@ -4214,33 +4220,16 @@ def superadmin_dashboard():
             if (button) button.textContent = '⏱ Auto Refresh: On (30s)';
         }}
     }}
+
+    document.addEventListener('click', function(event) {{
+        const tab = event.target.closest('.superadmin-tab[data-tab]');
+        if (!tab) return;
+        event.preventDefault();
+        activateSuperAdminTab(tab.getAttribute('data-tab'));
+    }});
 
     document.addEventListener('DOMContentLoaded', openSuperAdminTabFromHash);
     window.addEventListener('hashchange', openSuperAdminTabFromHash);
-    </script>
-    function showSuperAdminTab(tabId, button) {{
-        document.querySelectorAll('.superadmin-tab-panel').forEach(function(panel) {{ panel.classList.remove('active'); }});
-        document.querySelectorAll('.superadmin-tab').forEach(function(tab) {{ tab.classList.remove('active'); }});
-        var panel = document.getElementById(tabId);
-        if (panel) panel.classList.add('active');
-        if (button) button.classList.add('active');
-    }}
-    function refreshViewerTab() {{
-        var current = new URL(window.location.href);
-        current.hash = 'viewer-tab';
-        window.location.href = current.toString();
-    }}
-    function toggleAutoRefresh() {{
-        var button = document.getElementById('auto-refresh-button');
-        if (viewerAutoRefresh) {{
-            clearInterval(viewerAutoRefresh);
-            viewerAutoRefresh = null;
-            if (button) button.textContent = '⏱ Auto Refresh: Off';
-        }} else {{
-            viewerAutoRefresh = setInterval(refreshViewerTab, 30000);
-            if (button) button.textContent = '⏱ Auto Refresh: On (30s)';
-        }}
-    }}
     </script>
     """
     return render_page("Super Admin", body, staff_page=True)
