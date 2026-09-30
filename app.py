@@ -7,6 +7,7 @@ import secrets
 import hashlib
 import re
 import json
+import csv
 import ipaddress
 import urllib.request
 from pathlib import Path
@@ -78,6 +79,9 @@ COURT_ADDRESS = "PNP Bldg, Plaza Libertad, Poblacion 2, Silang, Cavite"
 COURT_PHONE = "09284621305"
 COURT_EMAIL = "mctc2sad000@judiciary.gov.ph"
 COURT_OFFICE_HOURS = "Monday to Friday, 8:00 AM - 5:00 PM"
+PRIMARY_SUPERADMIN_USERNAME = "26-0054"
+SECONDARY_SUPERADMIN_USERNAME = "Admin"
+APP_STARTED_AT_UTC = datetime.now(timezone.utc)
 MCTC_LOGO = "image0.png"
 MONGODB_URI = os.environ.get("MONGODB_URI", "").strip()
 MONGODB_DB_NAME = os.environ.get("MONGODB_DB", "mctc_silang_amadeo").strip() or "mctc_silang_amadeo"
@@ -97,7 +101,9 @@ MONGO_COLLECTIONS = (
     "requirements",
     "schedule",
     "audit_logs",
+    "viewer_logs",
     "private_notepad",
+    "superadmin_private_notepads",
 )
 SUPREME_LOGO = "1280px-Seal_of_the_Supreme_Court_(Philippines).png"
 MAP_QUERY = quote_plus(f"{COURT_NAME}, {COURT_ADDRESS}")
@@ -639,6 +645,14 @@ def initialize_database():
             updated_at TEXT NOT NULL,
             updated_by TEXT NOT NULL DEFAULT ''
         );
+        CREATE TABLE IF NOT EXISTS superadmin_private_notepads (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            staff_id INTEGER UNIQUE NOT NULL,
+            content TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL,
+            updated_by TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (staff_id) REFERENCES staff(id) ON DELETE CASCADE
+        );
         """
     )
     requirement_seeds = [
@@ -728,11 +742,15 @@ def initialize_database():
     else:
         connection.execute(
             "UPDATE staff SET username = ?, email = ?, role = ?, active = 1 WHERE id = ?",
-            ("Admin", "josehr.tan@gmail.com", "admin", admin["id"]),
+            (SECONDARY_SUPERADMIN_USERNAME, "josehr.tan@gmail.com", "superadmin", admin["id"]),
         )
+    connection.execute(
+        "UPDATE staff SET role = 'superadmin', active = 1 WHERE lower(username) = lower(?)",
+        (SECONDARY_SUPERADMIN_USERNAME,),
+    )
     superadmin = connection.execute(
         "SELECT * FROM staff WHERE username = ? LIMIT 1",
-        ("26-0054",),
+        (PRIMARY_SUPERADMIN_USERNAME,),
     ).fetchone()
     if superadmin is None:
         connection.execute(
@@ -742,7 +760,7 @@ def initialize_database():
             VALUES (?, ?, ?, ?, ?, ?)
             """,
             (
-                "26-0054",
+                PRIMARY_SUPERADMIN_USERNAME,
                 "26-0054@staff.local",
                 generate_password_hash("ThisWasHugo"),
                 "superadmin",
@@ -755,7 +773,34 @@ def initialize_database():
             "UPDATE staff SET email = ?, role = ?, active = 1 WHERE id = ?",
             ("26-0054@staff.local", "superadmin", superadmin["id"]),
         )
-    note = connection.execute("SELECT id FROM private_notepad WHERE id = 1").fetchone()
+
+    note = connection.execute(
+        "SELECT id, content, updated_at, updated_by FROM private_notepad WHERE id = 1"
+    ).fetchone()
+    for sa_row in connection.execute(
+        "SELECT id, username FROM staff WHERE role = 'superadmin'"
+    ).fetchall():
+        existing_private = connection.execute(
+            "SELECT id FROM superadmin_private_notepads WHERE staff_id = ?",
+            (sa_row["id"],),
+        ).fetchone()
+        if existing_private is None:
+            migrate_content = bool(
+                note and note["content"] and sa_row["username"].lower() == PRIMARY_SUPERADMIN_USERNAME.lower()
+            )
+            connection.execute(
+                """
+                INSERT INTO superadmin_private_notepads
+                (staff_id, content, updated_at, updated_by)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    sa_row["id"],
+                    note["content"] if migrate_content else "",
+                    note["updated_at"] if migrate_content else now(),
+                    note["updated_by"] if migrate_content else sa_row["username"],
+                ),
+            )
     if note is None:
         connection.execute(
             "INSERT INTO private_notepad (id, content, updated_at, updated_by) VALUES (1, '', ?, ?)",
@@ -858,6 +903,24 @@ def staff_required(function):
         session["staff_last_activity"] = current_time.isoformat(timespec="seconds")
         return function(*args, **kwargs)
     return wrapper
+def is_primary_superadmin():
+    return (
+        session.get("staff_role") == "superadmin"
+        and str(session.get("staff_username", "")).strip().lower()
+        == PRIMARY_SUPERADMIN_USERNAME.lower()
+    )
+
+def primary_superadmin_required(function):
+    @wraps(function)
+    def wrapper(*args, **kwargs):
+        if not session.get("staff_logged_in", False):
+            return redirect(url_for("staff_login"))
+        if not is_primary_superadmin():
+            abort(403)
+        return function(*args, **kwargs)
+    return wrapper
+
+
 def admin_required(function):
     @wraps(function)
     def wrapper(*args, **kwargs):
@@ -1108,13 +1171,47 @@ a:hover { text-decoration: underline; }
     }
 }
 .superadmin-tabs-card { margin-top: 24px; }
+.superadmin-identity-card { margin-top: 18px; }
+.world-map-card { overflow: hidden; }
+.world-map-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; }
+.world-map-heading h3 { margin:0 0 4px; }
+.viewer-world-map { width:100%; min-height:460px; border-radius:18px; overflow:hidden; border:1px solid var(--border); background:#eef3f7; }
+@media (max-width:700px) { .world-map-heading { flex-direction:column; align-items:flex-start; } .viewer-world-map { min-height:340px; } }
 .superadmin-tabs { display: flex; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
 .superadmin-tab { width: auto; border: 1px solid var(--border); border-bottom: 0; border-radius: 12px 12px 0 0; padding: 12px 18px; background: var(--surface-soft); color: var(--text); font-weight: 800; cursor: pointer; }
 .superadmin-tab.active { background: var(--primary); color: #fff; }
 .superadmin-tab-panel { display: none; }
 .superadmin-tab-panel.active { display: block; }
-.viewer-detail-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 18px 0; }
-@media (max-width: 650px) { .viewer-detail-stats { grid-template-columns: 1fr; } }
+.viewer-detail-stats { grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 18px 0; }
+.viewer-filter-bar {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr 1fr 1fr auto auto;
+    gap: 10px;
+    align-items: end;
+    margin: 16px 0;
+}
+.viewer-filter-bar label { margin-bottom: 0; font-weight: 700; }
+.viewer-filter-bar .field { display: flex; flex-direction: column; gap: 6px; }
+.viewer-kpi-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 14px 0 20px; }
+.viewer-kpi { padding: 16px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-soft); }
+.viewer-kpi strong { display: block; font-size: 28px; margin-bottom: 4px; }
+.viewer-bar-row { display: grid; grid-template-columns: 110px 1fr 55px; gap: 10px; align-items: center; margin: 8px 0; }
+.viewer-bar { height: 10px; border-radius: 999px; background: var(--surface-soft); overflow: hidden; border: 1px solid var(--border); }
+.viewer-bar > span { display: block; height: 100%; background: var(--primary); border-radius: 999px; }
+.viewer-chip { display: inline-block; padding: 5px 9px; border-radius: 999px; background: var(--surface-soft); border: 1px solid var(--border); font-size: 12px; font-weight: 700; }
+.viewer-live-dot { width: 9px; height: 9px; background: #2ecc71; border-radius: 50%; display: inline-block; margin-right: 6px; box-shadow: 0 0 0 4px rgba(46,204,113,.12); }
+.viewer-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.viewer-small-table td, .viewer-small-table th { font-size: 13px; padding: 9px 10px; }
+.viewer-detail-table td, .viewer-detail-table th { font-size: 12px; }
+@media (max-width: 1100px) {
+    .viewer-filter-bar { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .viewer-kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .viewer-detail-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 650px) {
+    .viewer-filter-bar, .viewer-kpi-grid, .viewer-detail-stats { grid-template-columns: 1fr; }
+    .viewer-bar-row { grid-template-columns: 88px 1fr 42px; }
+}
 .hero {
     margin: 12px 0 24px;
     padding: 45px 22px;
@@ -1405,9 +1502,10 @@ def render_page(title, body, staff_page=False):
             nav.append(
                 f"<a href='{url_for('superadmin_dashboard')}'>🛡️ Super Admin</a>"
             )
-            nav.append(
-                f"<a href='{url_for('private_notepad')}'>📝 Private Notepad</a>"
-            )
+            if is_primary_superadmin():
+                nav.append(
+                    f"<a href='{url_for('private_notepad')}'>📝 My Private Notes</a>"
+                )
         nav.append(
             f"<a href='{url_for('change_password')}'>🔑 Change Password</a>"
         )
@@ -3264,46 +3362,60 @@ def update_requirement(category):
     audit("requirement_updated", category)
     flash("Requirement updated.", "success")
     return redirect(url_for("staff_requirements"))
-# Private Super Admin Notepad
+# Primary Super Admin private workspace
 @app.route("/staff/private-notepad", methods=["GET", "POST"])
-@superadmin_required
+@primary_superadmin_required
 def private_notepad():
+    staff_id = session.get("staff_id")
+    username = session.get("staff_username", PRIMARY_SUPERADMIN_USERNAME)
     if request.method == "POST":
         content = request.form.get("content", "")
         connection = db()
         connection.execute(
-            "UPDATE private_notepad SET content = ?, updated_at = ?, updated_by = ? WHERE id = 1",
-            (content, now(), session.get("staff_username", "26-0054")),
+            """
+            INSERT INTO superadmin_private_notepads (staff_id, content, updated_at, updated_by)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(staff_id) DO UPDATE SET
+                content = excluded.content,
+                updated_at = excluded.updated_at,
+                updated_by = excluded.updated_by
+            """,
+            (staff_id, content, now(), username),
         )
         durable_commit(connection)
         connection.close()
-        audit("private_notepad_saved", "superadmin")
-        flash("Private note saved.", "success")
+        audit("primary_superadmin_private_notepad_saved", username)
+        flash("Your private Super Admin #1 note was saved.", "success")
         return redirect(url_for("private_notepad"))
+
     connection = db()
-    note = connection.execute("SELECT content, updated_at, updated_by FROM private_notepad WHERE id = 1").fetchone()
+    note = connection.execute(
+        "SELECT content, updated_at, updated_by FROM superadmin_private_notepads WHERE staff_id = ?",
+        (staff_id,),
+    ).fetchone()
     connection.close()
     content = note["content"] if note else ""
     updated_at = note["updated_at"] if note else ""
     updated_by = note["updated_by"] if note else ""
     body = f"""
     <section class="hero">
-        <h1>📝 Private Notepad</h1>
-        <p><strong>SUPER ADMIN ONLY</strong></p>
-        <p class="small">This note is restricted to the Super Admin account and is stored in the court database.</p>
+        <h1>📝 Super Admin #1 Private Notepad</h1>
+        <p><strong>PRIVATE TO {esc(PRIMARY_SUPERADMIN_USERNAME)}</strong></p>
+        <p class="small">This workspace belongs only to Super Admin #1. Super Admin #2 and all other staff accounts cannot view or edit this note.</p>
     </section>
-    <section class="card" style="max-width:1000px;margin:0 auto">
+    <section class="card" style="max-width:1050px;margin:0 auto">
+        <div class="notice warning"><strong>Privacy boundary:</strong> this note is stored against your staff account ID, not in a shared Super Admin record.</div>
         <form method="post" autocomplete="off">
-            <textarea name="content" style="min-height:480px;width:100%;resize:vertical" placeholder="Write anything here...">{esc(content)}</textarea>
+            <textarea name="content" style="min-height:520px;width:100%;resize:vertical" placeholder="Private Super Admin #1 notes...">{esc(content)}</textarea>
             <div class="actions" style="justify-content:center">
-                <button type="submit">💾 Save Private Note</button>
-                <a class="button secondary" href="{url_for('superadmin_dashboard')}">Back to Super Admin</a>
+                <button type="submit">💾 Save My Private Note</button>
+                <a class="button secondary" href="{url_for('superadmin_dashboard')}#private-tab">Back to Super Admin</a>
             </div>
         </form>
         <p class="small center">Last saved: {esc(updated_at)} by {esc(updated_by or '—')}</p>
     </section>
     """
-    return render_page("Private Notepad", body, staff_page=True)
+    return render_page("Super Admin #1 Private Notepad", body, staff_page=True)
 
 @app.route("/staff/viewers")
 @staff_required
@@ -3362,6 +3474,88 @@ def staff_viewers():
     """
     return render_page("Viewer Activity", body, staff_page=True)
 
+@app.route("/staff/super-admin/viewers/export")
+@superadmin_required
+def export_viewer_activity_csv():
+    """Export the current viewer activity dataset as CSV for Super Admin only."""
+    connection = db()
+    rows = connection.execute(
+        """
+        SELECT id, case_number, case_category, visitor_id, viewed_at, ip_address,
+               city, region, country, postal_code, latitude, longitude, timezone,
+               isp, organization, user_agent, referrer
+        FROM viewer_logs
+        ORDER BY id DESC
+        LIMIT 5000
+        """
+    ).fetchall()
+    connection.close()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        "View ID", "Case Number", "Category", "Visitor ID", "Viewed At",
+        "IP Address", "City", "Region", "Country", "Postal Code",
+        "Latitude", "Longitude", "Timezone", "ISP", "Organization",
+        "Browser / Device", "Referrer"
+    ])
+    for r in rows:
+        writer.writerow([
+            r["id"], r["case_number"], r["case_category"], r["visitor_id"],
+            r["viewed_at"], r["ip_address"], r["city"], r["region"],
+            r["country"], r["postal_code"], r["latitude"], r["longitude"],
+            r["timezone"], r["isp"], r["organization"], r["user_agent"],
+            r["referrer"],
+        ])
+    response = app.response_class(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=viewer_activity.csv"},
+    )
+    audit("export_viewer_activity", f"{len(rows)} viewer rows")
+    return response
+
+@app.route("/staff/super-admin/backup")
+@primary_superadmin_required
+def backup_database():
+    # Download a current SQLite backup. Restricted to Super Admin #1.
+    try:
+        connection = db()
+        try:
+            connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        except sqlite3.Error:
+            pass
+        connection.close()
+        audit("primary_superadmin_database_backup", str(DB_PATH))
+        return send_file(
+            DB_PATH,
+            as_attachment=True,
+            download_name="mctc_court_superadmin1_backup.db",
+            mimetype="application/octet-stream",
+        )
+    except Exception as error:
+        flash(f"Database backup failed: {type(error).__name__}.", "danger")
+        return redirect(url_for("superadmin_dashboard"))
+
+@app.route("/staff/super-admin/audit/export")
+@primary_superadmin_required
+def export_audit_activity_csv():
+    connection = db()
+    rows = connection.execute(
+        "SELECT id, username, action, target, created_at FROM audit_logs ORDER BY id DESC LIMIT 10000"
+    ).fetchall()
+    connection.close()
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Audit ID", "User", "Action", "Target", "Time"])
+    for row in rows:
+        writer.writerow([row["id"], row["username"], row["action"], row["target"], row["created_at"]])
+    audit("primary_superadmin_export_audit", f"{len(rows)} audit rows")
+    return app.response_class(
+        output.getvalue(),
+        mimetype="text/csv",
+        headers={"Content-Disposition": "attachment; filename=audit_activity.csv"},
+    )
+
 @app.route("/staff/super-admin")
 @superadmin_required
 def superadmin_dashboard():
@@ -3386,39 +3580,114 @@ def superadmin_dashboard():
     audit_rows = connection.execute(
         "SELECT username, action, target, created_at FROM audit_logs ORDER BY id DESC LIMIT 100"
     ).fetchall()
+
+    filter_q = request.args.get("viewer_q", "").strip()
+    filter_category = request.args.get("viewer_category", "").strip()
+    filter_from = request.args.get("viewer_from", "").strip()
+    filter_to = request.args.get("viewer_to", "").strip()
+    where = []
+    params = []
+    if filter_q:
+        like = f"%{filter_q}%"
+        where.append("(case_number LIKE ? OR visitor_id LIKE ? OR ip_address LIKE ? OR city LIKE ? OR country LIKE ? OR user_agent LIKE ?)")
+        params.extend([like, like, like, like, like, like])
+    if filter_category in {"Criminal", "Civil"}:
+        where.append("case_category = ?")
+        params.append(filter_category)
+    if filter_from:
+        where.append("substr(viewed_at, 1, 10) >= ?")
+        params.append(filter_from)
+    if filter_to:
+        where.append("substr(viewed_at, 1, 10) <= ?")
+        params.append(filter_to)
+    where_sql = (" WHERE " + " AND ".join(where)) if where else ""
+
+    filtered_summary = connection.execute(
+        f"""
+        SELECT COUNT(*) AS total_views,
+               COUNT(DISTINCT visitor_id) AS unique_viewers,
+               COUNT(DISTINCT case_id) AS unique_cases,
+               COUNT(DISTINCT NULLIF(country, '')) AS countries
+        FROM viewer_logs{where_sql}
+        """, params
+    ).fetchone()
+    today_views = connection.execute(
+        "SELECT COUNT(*) FROM viewer_logs WHERE substr(viewed_at,1,10) = ?",
+        (viewer_now()[:10],),
+    ).fetchone()[0]
+
     viewer_rows = connection.execute(
-        """
+        f"""
         SELECT case_number, case_category, visitor_id, viewed_at, ip_address, user_agent, referrer,
                country, region, city, postal_code, latitude, longitude, timezone, isp, organization
         FROM viewer_logs
-        ORDER BY id DESC LIMIT 200
-        """
+        {where_sql}
+        ORDER BY id DESC LIMIT 500
+        """, params
     ).fetchall()
     visitor_summary_rows = connection.execute(
-        """
-        SELECT visitor_id,
-               COUNT(*) AS total_views,
-               COUNT(DISTINCT case_id) AS cases_viewed,
-               MIN(viewed_at) AS first_viewed,
-               MAX(viewed_at) AS last_viewed,
-               MAX(ip_address) AS ip_address,
-               MAX(user_agent) AS user_agent,
-               MAX(referrer) AS referrer,
-               MAX(country) AS country,
-               MAX(region) AS region,
-               MAX(city) AS city,
-               MAX(postal_code) AS postal_code,
-               MAX(latitude) AS latitude,
-               MAX(longitude) AS longitude,
-               MAX(timezone) AS timezone,
-               MAX(isp) AS isp,
-               MAX(organization) AS organization
-        FROM viewer_logs
+        f"""
+        SELECT visitor_id, COUNT(*) AS total_views, COUNT(DISTINCT case_id) AS cases_viewed,
+               MIN(viewed_at) AS first_viewed, MAX(viewed_at) AS last_viewed,
+               MAX(ip_address) AS ip_address, MAX(user_agent) AS user_agent, MAX(referrer) AS referrer,
+               MAX(country) AS country, MAX(region) AS region, MAX(city) AS city,
+               MAX(postal_code) AS postal_code, MAX(latitude) AS latitude, MAX(longitude) AS longitude,
+               MAX(timezone) AS timezone, MAX(isp) AS isp, MAX(organization) AS organization
+        FROM viewer_logs{where_sql}
         GROUP BY visitor_id
-        ORDER BY last_viewed DESC
-        LIMIT 200
-        """
+        ORDER BY last_viewed DESC LIMIT 300
+        """, params
     ).fetchall()
+    top_cases = connection.execute(
+        f"""
+        SELECT case_number, case_category, COUNT(*) AS total_views,
+               COUNT(DISTINCT visitor_id) AS unique_visitors, MAX(viewed_at) AS last_viewed
+        FROM viewer_logs{where_sql}
+        GROUP BY case_id, case_number, case_category
+        ORDER BY total_views DESC, last_viewed DESC LIMIT 10
+        """, params
+    ).fetchall()
+    hourly_rows = connection.execute(
+        f"""
+        SELECT substr(viewed_at, 12, 2) AS hour, COUNT(*) AS views
+        FROM viewer_logs{where_sql}
+        GROUP BY hour ORDER BY hour
+        """, params
+    ).fetchall()
+    country_rows = connection.execute(
+        f"""
+        SELECT COALESCE(NULLIF(country, ''), 'Unknown') AS country_name, COUNT(*) AS views,
+               COUNT(DISTINCT visitor_id) AS visitors
+        FROM viewer_logs{where_sql}
+        GROUP BY country_name ORDER BY views DESC LIMIT 10
+        """, params
+    ).fetchall()
+    map_rows = connection.execute(
+        f"""
+        SELECT v.visitor_id, v.case_number, v.case_category, v.viewed_at,
+               v.city, v.region, v.country, v.latitude, v.longitude, v.ip_address
+        FROM viewer_logs v
+        INNER JOIN (
+            SELECT visitor_id, MAX(id) AS latest_id
+            FROM viewer_logs{where_sql}
+            GROUP BY visitor_id
+        ) latest ON latest.latest_id = v.id
+        ORDER BY v.id DESC
+        LIMIT 500
+        """, params
+    ).fetchall()
+
+    db_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
+    admin_count = connection.execute("SELECT COUNT(*) FROM staff WHERE role IN ('admin','superadmin')").fetchone()[0]
+    active_staff_count = connection.execute("SELECT COUNT(*) FROM staff WHERE active = 1").fetchone()[0]
+    criminal_cases_count = connection.execute("SELECT COUNT(*) FROM cases WHERE case_category = 'Criminal'").fetchone()[0]
+    civil_cases_count = connection.execute("SELECT COUNT(*) FROM cases WHERE case_category = 'Civil'").fetchone()[0]
+    active_cases_count = connection.execute("SELECT COUNT(*) FROM cases WHERE status = 'Active'").fetchone()[0]
+    archived_cases_count = connection.execute("SELECT COUNT(*) FROM cases WHERE status = 'Archived'").fetchone()[0]
+    terminated_cases_count = connection.execute("SELECT COUNT(*) FROM cases WHERE status = 'Terminated'").fetchone()[0]
+    upload_count = sum(1 for item in UPLOAD_DIR.iterdir() if item.is_file()) if UPLOAD_DIR.exists() else 0
+    db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
+    process_uptime_minutes = max(0, int((datetime.now(timezone.utc) - APP_STARTED_AT_UTC).total_seconds() // 60))
     connection.close()
     staff_table = "".join(
         f"<tr><td>{esc(r['username'])}</td><td>{esc(r['role'])}</td><td>{'Active' if r['active'] else 'Disabled'}</td></tr>"
@@ -3455,6 +3724,114 @@ def superadmin_dashboard():
         f"<td>{esc(r['user_agent'])}</td><td>{esc(r['referrer']) or 'Direct'}</td></tr>"
         for r in visitor_summary_rows
     )
+    max_hour_views = max([r['views'] for r in hourly_rows], default=1)
+    hourly_bars = "".join(
+        f"<div class='viewer-bar-row'><span>{esc(r['hour'])}:00</span><div class='viewer-bar'><span style='width:{max(4, int((r['views']/max_hour_views)*100))}%'></span></div><strong>{r['views']}</strong></div>"
+        for r in hourly_rows
+    )
+    top_case_table = "".join(
+        f"<tr><td>{esc(r['case_number'])}</td><td>{esc(r['case_category'])}</td>"
+        f"<td>{r['total_views']}</td><td>{r['unique_visitors']}</td><td>{esc(r['last_viewed'])}</td></tr>"
+        for r in top_cases
+    )
+    country_table = "".join(
+        f"<tr><td>{esc(r['country_name'])}</td><td>{r['visitors']}</td><td>{r['views']}</td></tr>"
+        for r in country_rows
+    )
+    map_points = []
+    for r in map_rows:
+        try:
+            lat = float(r["latitude"])
+            lon = float(r["longitude"])
+            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
+                continue
+        except (TypeError, ValueError):
+            continue
+        map_points.append({
+            "visitor_id": str(r["visitor_id"] or ""),
+            "case_number": str(r["case_number"] or ""),
+            "category": str(r["case_category"] or ""),
+            "viewed_at": str(r["viewed_at"] or ""),
+            "city": str(r["city"] or ""),
+            "region": str(r["region"] or ""),
+            "country": str(r["country"] or ""),
+            "lat": lat,
+            "lon": lon,
+        })
+    map_points_json = json.dumps(map_points, ensure_ascii=False).replace("</", "<\\/")
+    superadmin_identity = "Super Admin #1" if is_primary_superadmin() else "Super Admin #2"
+    if is_primary_superadmin():
+        superadmin_extra_tabs = """
+            <button type="button" class="superadmin-tab" onclick="showSuperAdminTab('private-tab', this)">📝 Private Workspace</button>
+            <button type="button" class="superadmin-tab" onclick="showSuperAdminTab('system-tab', this)">⚙️ System Control</button>
+        """
+        superadmin_extra_panels = f"""
+        <div id="private-tab" class="superadmin-tab-panel">
+            <h2 class="center">📝 Super Admin #1 Private Workspace</h2>
+            <p class="center small">Only account <strong>{esc(PRIMARY_SUPERADMIN_USERNAME)}</strong> can open this workspace.</p>
+            <div class="grid">
+                <div class="card centered"><span class="stat-number">PRIVATE</span>Dedicated Notepad</div>
+                <div class="card centered"><span class="stat-number">ISOLATED</span>Account-scoped storage</div>
+                <div class="card centered"><span class="stat-number">SA #1</span>Owner Workspace</div>
+            </div>
+            <div class="card centered">
+                <p>Your private note is completely separated from Super Admin #2.</p>
+                <a class="button" href="{url_for('private_notepad')}">📝 Open Private Notepad</a>
+            </div>
+        </div>
+        <div id="system-tab" class="superadmin-tab-panel">
+            <h2 class="center">⚙️ Super Admin #1 System Control Center</h2>
+            <p class="small center">Additional administrative tools available only to the first generated Super Admin account.</p>
+            <div class="grid">
+                <div class="card stat"><span class="stat-number">{esc(str(db_integrity).upper())}</span>Database Integrity</div>
+                <div class="card stat"><span class="stat-number">{db_size_mb} MB</span>Database Size</div>
+                <div class="card stat"><span class="stat-number">{upload_count}</span>Uploaded Files</div>
+                <div class="card stat"><span class="stat-number">{process_uptime_minutes}m</span>Process Uptime</div>
+            </div>
+            <section class="card">
+                <h3 class="center">📊 Case & Staff Snapshot</h3>
+                <div class="grid">
+                    <div><strong>Criminal Cases:</strong> {criminal_cases_count}</div>
+                    <div><strong>Civil Cases:</strong> {civil_cases_count}</div>
+                    <div><strong>Active:</strong> {active_cases_count}</div>
+                    <div><strong>Archived:</strong> {archived_cases_count}</div>
+                    <div><strong>Terminated:</strong> {terminated_cases_count}</div>
+                    <div><strong>Active Staff:</strong> {active_staff_count}</div>
+                    <div><strong>Admin / Super Admin Accounts:</strong> {admin_count}</div>
+                    <div><strong>MongoDB:</strong> {"Connected" if MONGO_READY else ("Configured, not connected" if MONGODB_URI else "Not configured")}</div>
+                </div>
+            </section>
+            <section class="card">
+                <h3 class="center">🔐 Security Configuration</h3>
+                <div class="grid">
+                    <div><strong>Session timeout:</strong> 5 minutes</div>
+                    <div><strong>HTTP-only cookies:</strong> Enabled</div>
+                    <div><strong>SameSite:</strong> Lax</div>
+                    <div><strong>HTTPS cookie:</strong> {"Enabled on Render" if os.environ.get("RENDER") else "Not forced locally"}</div>
+                </div>
+            </section>
+            <section class="card centered">
+                <h3>🧰 Primary Account Tools</h3>
+                <div class="actions" style="justify-content:center;flex-wrap:wrap">
+                    <a class="button" href="{url_for('backup_database')}">💾 Download Database Backup</a>
+                    <a class="button secondary" href="{url_for('export_audit_activity_csv')}">🧾 Export Audit CSV</a>
+                    <a class="button secondary" href="{url_for('private_notepad')}">📝 Open Private Notes</a>
+                </div>
+            </section>
+        </div>
+        """
+    else:
+        superadmin_extra_tabs = ""
+        superadmin_extra_panels = ""
+    filter_query_string = "&".join(
+        f"{esc(k)}={esc(v)}" for k, v in [
+            ("viewer_q", filter_q), ("viewer_category", filter_category),
+            ("viewer_from", filter_from), ("viewer_to", filter_to)
+        ] if v
+    )
+    export_href = url_for("export_viewer_activity_csv")
+    if filter_query_string:
+        export_href += "?" + filter_query_string
     body = f"""
     <section class="hero">
         <h1>🛡️ Super Admin</h1>
@@ -3472,16 +3849,17 @@ def superadmin_dashboard():
         <h2 class="center">Case Overview</h2>
         <table><thead><tr><th>Case Number</th><th>Plaintiff</th><th>Defendant</th><th>Status</th><th>Updated</th></tr></thead><tbody>{case_table or '<tr><td colspan="5">No cases</td></tr>'}</tbody></table>
     </section>
-    <section class="card centered">
-        <h2>🔒 Private Super Admin Area</h2>
-        <p>This area is unavailable to normal Admin and Staff accounts.</p>
-        <p><a class="button" href="{url_for('private_notepad')}">📝 Open Private Notepad</a></p>
+    <section class="card centered superadmin-identity-card">
+        <h2>🛡️ {superadmin_identity}</h2>
+        <p>Signed in as <strong>{esc(session.get("staff_username", ""))}</strong>.</p>
+        <p class="small">Super Admin #1 has additional private and system-control features. Super Admin #2 has separate access and cannot open Super Admin #1's private workspace.</p>
     </section>
     <section class="card superadmin-tabs-card">
         <div class="superadmin-tabs" role="tablist" aria-label="Super Admin sections">
             <button type="button" class="superadmin-tab active" onclick="showSuperAdminTab('overview-tab', this)">System Overview</button>
             <button type="button" class="superadmin-tab" onclick="showSuperAdminTab('viewer-tab', this)">👁️ Viewer Information</button>
             <button type="button" class="superadmin-tab" onclick="showSuperAdminTab('audit-tab', this)">Audit Activity</button>
+            {superadmin_extra_tabs}
         </div>
         <div id="overview-tab" class="superadmin-tab-panel active">
             <h2 class="center">System Overview</h2>
@@ -3489,13 +3867,71 @@ def superadmin_dashboard():
         </div>
         <div id="viewer-tab" class="superadmin-tab-panel">
             <h2 class="center">🔎 Detailed Viewer Information</h2>
-            <p class="small">Super Admin only. This tab shows anonymous visitor information collected when a public case page is opened. Timestamps are Philippine Time. Location is an <strong>approximate IP-based location</strong> (city/region/country) and is not exact GPS location. The system records visitor ID, view counts, cases viewed, first/last viewing time, IP address, approximate location, postal code when available, latitude/longitude reported by the geolocation service, timezone, network/ISP, browser/device information, and referrer.</p>
+            <p class="small">Super Admin only. This dashboard organizes anonymous case-view activity into filters, visitor summaries, case trends, time-of-day activity, and the detailed log. Location remains approximate and IP-based; it is not exact GPS.</p>
+
+            <section class="card" style="margin-bottom:16px;">
+                <form method="get" class="viewer-filter-bar">
+                    <div class="field"><label for="viewer_q">Search</label><input id="viewer_q" name="viewer_q" value="{esc(filter_q)}" placeholder="Case, visitor ID, IP, city, country, browser..."></div>
+                    <div class="field"><label for="viewer_category">Category</label><select id="viewer_category" name="viewer_category"><option value="">All Categories</option><option value="Criminal" {'selected' if filter_category == 'Criminal' else ''}>Criminal</option><option value="Civil" {'selected' if filter_category == 'Civil' else ''}>Civil</option></select></div>
+                    <div class="field"><label for="viewer_from">From</label><input id="viewer_from" type="date" name="viewer_from" value="{esc(filter_from)}"></div>
+                    <div class="field"><label for="viewer_to">To</label><input id="viewer_to" type="date" name="viewer_to" value="{esc(filter_to)}"></div>
+                    <button type="submit">🔍 Filter</button>
+                    <a class="button secondary" href="{url_for('superadmin_dashboard')}#viewer-tab">Reset</a>
+                </form>
+                <div class="viewer-actions">
+                    <a class="button" href="{esc(export_href)}">⬇️ Export Viewer CSV</a>
+                    <button type="button" class="button secondary" onclick="refreshViewerTab()">↻ Refresh Data</button>
+                    <button type="button" class="button secondary" onclick="toggleAutoRefresh()" id="auto-refresh-button">⏱ Auto Refresh: Off</button>
+                    <span class="viewer-chip"><span class="viewer-live-dot"></span>Last loaded: {esc(viewer_now())} PHT</span>
+                </div>
+            </section>
+
+            <div class="viewer-kpi-grid">
+                <div class="viewer-kpi"><strong>{filtered_summary['total_views']}</strong>Filtered Views</div>
+                <div class="viewer-kpi"><strong>{filtered_summary['unique_viewers']}</strong>Unique Visitors</div>
+                <div class="viewer-kpi"><strong>{filtered_summary['unique_cases']}</strong>Cases Viewed</div>
+                <div class="viewer-kpi"><strong>{today_views}</strong>Views Today</div>
+            </div>
+
+            <section class="card world-map-card">
+                <div class="world-map-heading">
+                    <div>
+                        <h3>🌍 Global Visitor Map</h3>
+                        <p class="small">Each marker represents the latest known approximate IP-based location for a tracked visitor within the current filter.</p>
+                    </div>
+                    <span class="viewer-chip">{len(map_points)} mapped visitor{'' if len(map_points)==1 else 's'}</span>
+                </div>
+                <div id="viewer-world-map" class="viewer-world-map"></div>
+                <p class="small center" style="margin-bottom:0">Location is approximate and may point to a nearby network or ISP location. It is not exact GPS.</p>
+            </section>
+
             <div class="grid viewer-detail-stats">
                 <div class="card stat"><span class="stat-number">{counts['views']}</span>Total Case Views</div>
                 <div class="card stat"><span class="stat-number">{counts['unique_viewers']}</span>Unique Visitors</div>
                 <div class="card stat"><span class="stat-number">{len(visitor_summary_rows)}</span>Tracked Visitor IDs</div>
+                <div class="card stat"><span class="stat-number">{filtered_summary['countries']}</span>Countries Seen</div>
             </div>
-            <section class="card" style="margin-bottom:16px;">
+
+            <div class="grid" style="grid-template-columns:1fr 1fr;align-items:start;">
+                <section class="card">
+                    <h3 class="center">📈 Activity by Hour</h3>
+                    <p class="small center">Based on the currently filtered view records.</p>
+                    {hourly_bars or '<p class="center small">No hourly activity for this filter.</p>'}
+                </section>
+                <section class="card table-wrap">
+                    <h3 class="center">🌍 Visitor Countries</h3>
+                    <table class="viewer-small-table"><thead><tr><th>Country</th><th>Visitors</th><th>Views</th></tr></thead>
+                    <tbody>{country_table or '<tr><td colspan="3">No location data available.</td></tr>'}</tbody></table>
+                </section>
+            </div>
+
+            <section class="card table-wrap">
+                <h3 class="center">🔥 Most Viewed Cases</h3>
+                <table class="viewer-small-table"><thead><tr><th>Case Number</th><th>Category</th><th>Total Views</th><th>Unique Visitors</th><th>Last Viewed</th></tr></thead>
+                <tbody>{top_case_table or '<tr><td colspan="5">No public case views yet.</td></tr>'}</tbody></table>
+            </section>
+
+            <section class="card">
                 <h3 class="center">📍 Location & Network Information</h3>
                 <div class="grid">
                     <div><strong>Approximate Location</strong><br><span class="small">City → Region → Country, based on visitor IP</span></div>
@@ -3505,29 +3941,78 @@ def superadmin_dashboard():
                     <div><strong>Network / ISP</strong><br><span class="small">Network or organization reported for the IP</span></div>
                 </div>
             </section>
+
             <section class="card table-wrap">
-                <h3 class="center">Visitor Summary</h3>
-                <table><thead><tr><th>Visitor ID</th><th>Total Views</th><th>Cases Viewed</th><th>First Viewed</th><th>Last Viewed</th><th>Approx. Location</th><th>Postal Code</th><th>Timezone</th><th>Coordinates</th><th>IP Address</th><th>Network / ISP</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
-                <tbody>{visitor_summary_table or '<tr><td colspan="13">No public case views yet.</td></tr>'}</tbody></table>
+                <h3 class="center">👤 Visitor Directory</h3>
+                <p class="small">One row per anonymous visitor ID. This is a technical identifier created by the site, not the person's real identity.</p>
+                <table class="viewer-detail-table"><thead><tr><th>Visitor ID</th><th>Total Views</th><th>Cases Viewed</th><th>First Seen</th><th>Last Seen</th><th>Approx. Location</th><th>Postal</th><th>Timezone</th><th>Coordinates</th><th>IP</th><th>Network</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
+                <tbody>{visitor_summary_table or '<tr><td colspan="13">No matching visitors.</td></tr>'}</tbody></table>
             </section>
+
             <section class="card table-wrap">
-                <h3 class="center">Detailed View Log</h3>
-                <table><thead><tr><th>Case</th><th>Category</th><th>Visitor ID</th><th>Viewed At</th><th>Approx. Location</th><th>Postal Code</th><th>Coordinates</th><th>Timezone</th><th>IP Address</th><th>Network / ISP</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
-                <tbody>{viewer_table or '<tr><td colspan="12">No public case views yet.</td></tr>'}</tbody></table>
+                <h3 class="center">🧾 Detailed View Log</h3>
+                <p class="small">The detailed log records each public case-page opening separately. Repeated openings appear as separate view events.</p>
+                <table class="viewer-detail-table"><thead><tr><th>Case</th><th>Category</th><th>Visitor ID</th><th>Viewed At</th><th>Approx. Location</th><th>Postal</th><th>Coordinates</th><th>Timezone</th><th>IP</th><th>Network / ISP</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
+                <tbody>{viewer_table or '<tr><td colspan="12">No matching case views.</td></tr>'}</tbody></table>
             </section>
         </div>
         <div id="audit-tab" class="superadmin-tab-panel">
             <h2 class="center">Recent Audit Activity</h2>
             <div class="table-wrap"><table><thead><tr><th>User</th><th>Action</th><th>Target</th><th>Time</th></tr></thead><tbody>{audit_table or '<tr><td colspan="4">No audit activity</td></tr>'}</tbody></table></div>
         </div>
+        {superadmin_extra_panels}
     </section>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
     <script>
+    const viewerMapPoints = {map_points_json};
+    document.addEventListener('DOMContentLoaded', function() {{
+        var mapEl = document.getElementById('viewer-world-map');
+        if (!mapEl || typeof L === 'undefined') return;
+        var map = L.map('viewer-world-map', {{worldCopyJump: true, minZoom: 1, maxZoom: 18}}).setView([20, 0], 2);
+        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+            maxZoom: 18,
+            attribution: '&copy; OpenStreetMap contributors'
+        }}).addTo(map);
+        viewerMapPoints.forEach(function(point) {{
+            var parts = [point.city, point.region, point.country].filter(Boolean);
+            var location = parts.length ? parts.join(', ') : 'Approximate location unavailable';
+            var popup = '<strong>' + escapeMapHtml(point.case_number) + '</strong><br>' +
+                escapeMapHtml(point.category) + '<br>' +
+                'Visitor: ' + escapeMapHtml(point.visitor_id) + '<br>' +
+                escapeMapHtml(location) + '<br>' +
+                'Viewed: ' + escapeMapHtml(point.viewed_at);
+            L.marker([point.lat, point.lon]).addTo(map).bindPopup(popup);
+        }});
+    }});
+    function escapeMapHtml(value) {{
+        return String(value ?? '').replace(/[&<>"']/g, function(char) {{
+            return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[char];
+        }});
+    }}
+    var viewerAutoRefresh = null;
     function showSuperAdminTab(tabId, button) {{
         document.querySelectorAll('.superadmin-tab-panel').forEach(function(panel) {{ panel.classList.remove('active'); }});
         document.querySelectorAll('.superadmin-tab').forEach(function(tab) {{ tab.classList.remove('active'); }});
         var panel = document.getElementById(tabId);
         if (panel) panel.classList.add('active');
         if (button) button.classList.add('active');
+    }}
+    function refreshViewerTab() {{
+        var current = new URL(window.location.href);
+        current.hash = 'viewer-tab';
+        window.location.href = current.toString();
+    }}
+    function toggleAutoRefresh() {{
+        var button = document.getElementById('auto-refresh-button');
+        if (viewerAutoRefresh) {{
+            clearInterval(viewerAutoRefresh);
+            viewerAutoRefresh = null;
+            if (button) button.textContent = '⏱ Auto Refresh: Off';
+        }} else {{
+            viewerAutoRefresh = setInterval(refreshViewerTab, 30000);
+            if (button) button.textContent = '⏱ Auto Refresh: On (30s)';
+        }}
     }}
     </script>
     """
@@ -3539,7 +4024,7 @@ def staff_accounts():
     connection = db()
     if session.get("staff_role") == "superadmin":
         rows = connection.execute(
-            "SELECT id, username, role, active FROM staff ORDER BY username"
+            "SELECT id, username, role, active FROM staff ORDER BY CASE lower(username) WHEN '26-0054' THEN 0 WHEN 'admin' THEN 1 ELSE 2 END, username"
         ).fetchall()
     else:
         rows = connection.execute(
@@ -3589,7 +4074,11 @@ def staff_accounts():
             <label>{tr('password')}</label>
             <input type="password" name="password" minlength="8" required autocomplete="new-password">
             <label>Role</label>
-            <select name="role"><option value="staff">Staff</option><option value="admin">Administrator</option></select>
+            <select name="role">
+                <option value="staff">Staff</option>
+                <option value="admin">Administrator</option>
+                {"<option value='superadmin'>Super Admin</option>" if is_primary_superadmin() else ""}
+            </select>
             <button type="submit">{tr('add')}</button>
         </form>
     </section>
@@ -3608,7 +4097,10 @@ def add_staff():
     email = request.form.get("email", "").strip()
     password = request.form.get("password", "")
     role = request.form.get("role", "staff")
-    if role not in {"staff", "admin"}:
+    allowed_roles = {"staff", "admin"}
+    if is_primary_superadmin():
+        allowed_roles.add("superadmin")
+    if role not in allowed_roles:
         role = "staff"
     if not username or not email or not password:
         flash("Username, email and password are required.", "danger")
