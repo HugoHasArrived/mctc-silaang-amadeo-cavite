@@ -1022,7 +1022,11 @@ a:hover { text-decoration: underline; }
 .superadmin-tab.active { background: var(--primary); color: #fff; }
 .superadmin-tab-panel { display: none; }
 .superadmin-tab-panel.active { display: block; }
-.viewer-detail-stats { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 18px 0; }
+.viewer-detail-stats { grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 18px 0; }
+.viewer-info-note { padding: 14px 16px; margin: 12px 0 18px; border-left: 5px solid var(--purple); border-radius: 10px; background: var(--surface-soft); }
+.viewer-section-title { margin: 0 0 6px; }
+.viewer-table th, .viewer-table td { white-space: nowrap; }
+@media (max-width: 900px) { .viewer-detail-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 650px) { .viewer-detail-stats { grid-template-columns: 1fr; } }
 .hero {
     margin: 12px 0 24px;
@@ -3302,20 +3306,38 @@ def superadmin_dashboard():
         ORDER BY id DESC LIMIT 200
         """
     ).fetchall()
+    today = viewer_now()[:10]
     visitor_summary_rows = connection.execute(
         """
         SELECT visitor_id,
                COUNT(*) AS total_views,
                COUNT(DISTINCT case_id) AS cases_viewed,
+               SUM(CASE WHEN substr(viewed_at, 1, 10) = ? THEN 1 ELSE 0 END) AS views_today,
                MIN(viewed_at) AS first_viewed,
                MAX(viewed_at) AS last_viewed,
                MAX(ip_address) AS ip_address,
                MAX(user_agent) AS user_agent,
-               MAX(referrer) AS referrer
-        FROM viewer_logs
+               MAX(referrer) AS referrer,
+               (SELECT v2.case_number FROM viewer_logs v2 WHERE v2.visitor_id = v.visitor_id ORDER BY v2.viewed_at DESC, v2.id DESC LIMIT 1) AS last_case_number,
+               (SELECT v2.case_category FROM viewer_logs v2 WHERE v2.visitor_id = v.visitor_id ORDER BY v2.viewed_at DESC, v2.id DESC LIMIT 1) AS last_case_category
+        FROM viewer_logs v
         GROUP BY visitor_id
         ORDER BY last_viewed DESC
         LIMIT 200
+        """,
+        (today,),
+    ).fetchall()
+    case_view_rows = connection.execute(
+        """
+        SELECT case_number, case_category,
+               COUNT(*) AS total_views,
+               COUNT(DISTINCT visitor_id) AS unique_viewers,
+               MIN(viewed_at) AS first_viewed,
+               MAX(viewed_at) AS last_viewed
+        FROM viewer_logs
+        GROUP BY case_number, case_category
+        ORDER BY total_views DESC, last_viewed DESC
+        LIMIT 100
         """
     ).fetchall()
     connection.close()
@@ -3338,11 +3360,19 @@ def superadmin_dashboard():
         for r in viewer_rows
     )
     visitor_summary_table = "".join(
-        f"<tr><td>{esc(r['visitor_id'])}</td><td>{r['total_views']}</td>"
-        f"<td>{r['cases_viewed']}</td><td>{esc(r['first_viewed'])}</td>"
-        f"<td>{esc(r['last_viewed'])}</td><td>{esc(r['ip_address'])}</td>"
-        f"<td>{esc(r['user_agent'])}</td><td>{esc(r['referrer']) or 'Direct'}</td></tr>"
+        f"<tr><td><strong>{esc(r['visitor_id'])}</strong><br><span class='small'>{'Returning visitor' if r['total_views'] > 1 else 'First recorded visit'}</span></td>"
+        f"<td>{r['total_views']}</td><td>{r['views_today']}</td><td>{r['cases_viewed']}</td>"
+        f"<td>{esc(r['first_viewed'])}</td><td>{esc(r['last_viewed'])}</td>"
+        f"<td>{esc(r['last_case_number'])}<br><span class='small'>{esc(r['last_case_category'])}</span></td>"
+        f"<td>{esc(r['ip_address'])}</td><td style='min-width:320px;text-align:left;word-break:break-word'>{esc(r['user_agent'])}</td>"
+        f"<td style='min-width:180px;word-break:break-word'>{esc(r['referrer']) or 'Direct'}</td></tr>"
         for r in visitor_summary_rows
+    )
+    case_view_table = "".join(
+        f"<tr><td><strong>{esc(r['case_number'])}</strong></td><td>{esc(r['case_category'])}</td>"
+        f"<td>{r['total_views']}</td><td>{r['unique_viewers']}</td>"
+        f"<td>{esc(r['first_viewed'])}</td><td>{esc(r['last_viewed'])}</td></tr>"
+        for r in case_view_rows
     )
     body = f"""
     <section class="hero">
@@ -3378,21 +3408,38 @@ def superadmin_dashboard():
         </div>
         <div id="viewer-tab" class="superadmin-tab-panel">
             <h2 class="center">🔎 Detailed Viewer Information</h2>
-            <p class="small">Super Admin only. This tab shows anonymous visitor information collected when a public case page is opened. Timestamps are Philippine Time. The system records an anonymous visitor ID, number of views, cases viewed, first/last viewing time, IP address, browser/device information, and referrer.</p>
+            <p class="small">Super Admin only. This tab organizes anonymous case-page activity into an overview, visitor directory, case activity, and individual view log. Timestamps are Philippine Time. A visitor is identified only by the anonymous visitor ID created by the portal.</p>
+            <div class="viewer-info-note">
+                <strong>What is tracked?</strong>
+                <p style="margin:7px 0 0">Case opened, case category, anonymous Visitor ID, number of views, number of different cases viewed, first and latest viewing time, views today, IP address, browser/device user-agent, and referring page. The portal does not display a real person’s name because this tracker uses an anonymous visitor ID.</p>
+            </div>
             <div class="grid viewer-detail-stats">
                 <div class="card stat"><span class="stat-number">{counts['views']}</span>Total Case Views</div>
                 <div class="card stat"><span class="stat-number">{counts['unique_viewers']}</span>Unique Visitors</div>
                 <div class="card stat"><span class="stat-number">{len(visitor_summary_rows)}</span>Tracked Visitor IDs</div>
+                <div class="card stat"><span class="stat-number">{sum(1 for r in visitor_summary_rows if r['total_views'] > 1)}</span>Returning Visitors</div>
+                <div class="card stat"><span class="stat-number">{sum(r['views_today'] for r in visitor_summary_rows)}</span>Views Today</div>
             </div>
             <section class="card table-wrap">
-                <h3 class="center">Visitor Summary</h3>
-                <table><thead><tr><th>Visitor ID</th><th>Total Views</th><th>Cases Viewed</th><th>First Viewed</th><th>Last Viewed</th><th>IP Address</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
-                <tbody>{visitor_summary_table or '<tr><td colspan="8">No public case views yet.</td></tr>'}</tbody></table>
+                <h3 class="viewer-section-title center">👤 Visitor Directory</h3>
+                <p class="small center">One row per anonymous visitor. “Returning visitor” means the same anonymous visitor ID has more than one recorded case-page view.</p>
+                <table class="viewer-table"><thead><tr><th>Visitor ID / Visit Type</th><th>Total Views</th><th>Views Today</th><th>Cases Viewed</th><th>First Seen</th><th>Last Seen</th><th>Latest Case</th><th>IP Address</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
+                <tbody>{visitor_summary_table or '<tr><td colspan="10">No public case views yet.</td></tr>'}</tbody></table>
             </section>
             <section class="card table-wrap">
-                <h3 class="center">Detailed View Log</h3>
-                <table><thead><tr><th>Case</th><th>Category</th><th>Visitor ID</th><th>Viewed At</th><th>IP Address</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
-                <tbody>{viewer_table or '<tr><td colspan="7">No public case views yet.</td></tr>'}</tbody></table>
+                <h3 class="viewer-section-title center">📋 Case Viewing Summary</h3>
+                <p class="small center">This section groups activity by case so the Super Admin can see how many total views and different visitors each case has received.</p>
+                <table><thead><tr><th>Case Number</th><th>Category</th><th>Total Views</th><th>Unique Visitors</th><th>First Viewed</th><th>Last Viewed</th></tr></thead>
+                <tbody>{case_view_table or '<tr><td colspan="6">No public case views yet.</td></tr>'}</tbody></table>
+            </section>
+            <section class="card table-wrap">
+                <h3 class="viewer-section-title center">🕒 Detailed View Log</h3>
+                <p class="small center">Every recorded public case-page opening appears here. Entries are ordered from newest to oldest.</p>
+                <table class="viewer-table"><thead><tr><th>Case</th><th>Category</th><th>Visitor ID</th><th>Viewed At</th><th>Date</th><th>Time</th><th>IP Address</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
+                <tbody>{''.join(
+                    f"<tr><td>{esc(r['case_number'])}</td><td>{esc(r['case_category'])}</td><td>{esc(r['visitor_id'])}</td><td>{esc(r['viewed_at'])}</td><td>{esc(str(r['viewed_at'])[:10])}</td><td>{esc(str(r['viewed_at'])[11:19])}</td><td>{esc(r['ip_address'])}</td><td style='min-width:320px;text-align:left;word-break:break-word'>{esc(r['user_agent'])}</td><td style='min-width:180px;word-break:break-word'>{esc(r['referrer']) or 'Direct'}</td></tr>"
+                    for r in viewer_rows
+                ) or '<tr><td colspan="9">No public case views yet.</td></tr>'}</tbody></table>
             </section>
         </div>
         <div id="audit-tab" class="superadmin-tab-panel">
