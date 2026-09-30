@@ -9,6 +9,7 @@ import re
 import json
 import csv
 import ipaddress
+import sys
 import urllib.request
 from pathlib import Path
 from functools import wraps
@@ -542,7 +543,9 @@ def initialize_database():
             password_hash TEXT NOT NULL,
             role TEXT NOT NULL DEFAULT 'staff',
             active INTEGER NOT NULL DEFAULT 1,
-            created_at TEXT NOT NULL
+            created_at TEXT NOT NULL,
+            last_login_at TEXT NOT NULL DEFAULT '',
+            login_count INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS cases (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -677,6 +680,14 @@ def initialize_database():
     if "internal_notes" not in case_columns:
         connection.execute("ALTER TABLE cases ADD COLUMN internal_notes TEXT NOT NULL DEFAULT ''")
         case_columns.add("internal_notes")
+
+    staff_columns = {row[1] for row in connection.execute("PRAGMA table_info(staff)").fetchall()}
+    if "last_login_at" not in staff_columns:
+        connection.execute("ALTER TABLE staff ADD COLUMN last_login_at TEXT NOT NULL DEFAULT ''")
+        staff_columns.add("last_login_at")
+    if "login_count" not in staff_columns:
+        connection.execute("ALTER TABLE staff ADD COLUMN login_count INTEGER NOT NULL DEFAULT 0")
+        staff_columns.add("login_count")
 
     viewer_columns = {row[1] for row in connection.execute("PRAGMA table_info(viewer_logs)").fetchall()}
     viewer_location_columns = {
@@ -1172,11 +1183,6 @@ a:hover { text-decoration: underline; }
 }
 .superadmin-tabs-card { margin-top: 24px; }
 .superadmin-identity-card { margin-top: 18px; }
-.world-map-card { overflow: hidden; }
-.world-map-heading { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:12px; }
-.world-map-heading h3 { margin:0 0 4px; }
-.viewer-world-map { width:100%; min-height:460px; border-radius:18px; overflow:hidden; border:1px solid var(--border); background:#eef3f7; }
-@media (max-width:700px) { .world-map-heading { flex-direction:column; align-items:flex-start; } .viewer-world-map { min-height:340px; } }
 .superadmin-tabs { display: flex; gap: 10px; flex-wrap: wrap; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
 .superadmin-tab { width: auto; border: 1px solid var(--border); border-bottom: 0; border-radius: 12px 12px 0 0; padding: 12px 18px; background: var(--surface-soft); color: var(--text); font-weight: 800; cursor: pointer; }
 .superadmin-tab.active { background: var(--primary); color: #fff; }
@@ -2140,6 +2146,13 @@ def staff_login():
         ).fetchone()
         connection.close()
         if staff and check_password_hash(staff["password_hash"], password):
+            connection = db()
+            connection.execute(
+                "UPDATE staff SET last_login_at = ?, login_count = COALESCE(login_count, 0) + 1 WHERE id = ?",
+                (viewer_now(), staff["id"]),
+            )
+            durable_commit(connection)
+            connection.close()
             session.clear()
             session.permanent = True
             session["staff_logged_in"] = True
@@ -3572,7 +3585,7 @@ def superadmin_dashboard():
         "unique_viewers": connection.execute("SELECT COUNT(DISTINCT visitor_id) FROM viewer_logs").fetchone()[0],
     }
     staff_rows = connection.execute(
-        "SELECT username, role, active FROM staff ORDER BY username"
+        "SELECT username, role, active, last_login_at, login_count FROM staff ORDER BY username"
     ).fetchall()
     case_rows = connection.execute(
         "SELECT case_number, plaintiff_name, defendant_name, case_category, status, updated_at FROM cases ORDER BY updated_at DESC LIMIT 100"
@@ -3615,6 +3628,22 @@ def superadmin_dashboard():
         "SELECT COUNT(*) FROM viewer_logs WHERE substr(viewed_at,1,10) = ?",
         (viewer_now()[:10],),
     ).fetchone()[0]
+    today_unique_visitors = connection.execute(
+        "SELECT COUNT(DISTINCT visitor_id) FROM viewer_logs WHERE substr(viewed_at,1,10) = ?",
+        (viewer_now()[:10],),
+    ).fetchone()[0]
+    returning_visitors = connection.execute(
+        "SELECT COUNT(*) FROM (SELECT visitor_id FROM viewer_logs GROUP BY visitor_id HAVING COUNT(*) > 1)",
+    ).fetchone()[0]
+    avg_views_per_visitor = round(
+        counts["views"] / counts["unique_viewers"], 2
+    ) if counts["unique_viewers"] else 0
+    unique_cities = connection.execute(
+        "SELECT COUNT(DISTINCT NULLIF(city, '')) FROM viewer_logs"
+    ).fetchone()[0]
+    unique_networks = connection.execute(
+        "SELECT COUNT(DISTINCT NULLIF(COALESCE(NULLIF(isp,''), organization), '')) FROM viewer_logs"
+    ).fetchone()[0]
 
     viewer_rows = connection.execute(
         f"""
@@ -3627,14 +3656,32 @@ def superadmin_dashboard():
     ).fetchall()
     visitor_summary_rows = connection.execute(
         f"""
-        SELECT visitor_id, COUNT(*) AS total_views, COUNT(DISTINCT case_id) AS cases_viewed,
-               MIN(viewed_at) AS first_viewed, MAX(viewed_at) AS last_viewed,
-               MAX(ip_address) AS ip_address, MAX(user_agent) AS user_agent, MAX(referrer) AS referrer,
-               MAX(country) AS country, MAX(region) AS region, MAX(city) AS city,
-               MAX(postal_code) AS postal_code, MAX(latitude) AS latitude, MAX(longitude) AS longitude,
-               MAX(timezone) AS timezone, MAX(isp) AS isp, MAX(organization) AS organization
-        FROM viewer_logs{where_sql}
-        GROUP BY visitor_id
+        SELECT v.visitor_id,
+               COUNT(*) AS total_views,
+               COUNT(DISTINCT v.case_id) AS cases_viewed,
+               MIN(v.viewed_at) AS first_viewed,
+               MAX(v.viewed_at) AS last_viewed,
+               MAX(v.ip_address) AS ip_address,
+               MAX(v.user_agent) AS user_agent,
+               MAX(v.referrer) AS referrer,
+               MAX(v.country) AS country,
+               MAX(v.region) AS region,
+               MAX(v.city) AS city,
+               MAX(v.postal_code) AS postal_code,
+               MAX(v.latitude) AS latitude,
+               MAX(v.longitude) AS longitude,
+               MAX(v.timezone) AS timezone,
+               MAX(v.isp) AS isp,
+               MAX(v.organization) AS organization,
+               latest.case_number AS latest_case,
+               latest.case_category AS latest_category,
+               latest.viewed_at AS latest_event_at
+        FROM viewer_logs v
+        LEFT JOIN viewer_logs latest ON latest.id = (
+            SELECT MAX(v2.id) FROM viewer_logs v2 WHERE v2.visitor_id = v.visitor_id
+        )
+        {where_sql}
+        GROUP BY v.visitor_id
         ORDER BY last_viewed DESC LIMIT 300
         """, params
     ).fetchall()
@@ -3662,20 +3709,67 @@ def superadmin_dashboard():
         GROUP BY country_name ORDER BY views DESC LIMIT 10
         """, params
     ).fetchall()
-    map_rows = connection.execute(
-        f"""
-        SELECT v.visitor_id, v.case_number, v.case_category, v.viewed_at,
-               v.city, v.region, v.country, v.latitude, v.longitude, v.ip_address
-        FROM viewer_logs v
-        INNER JOIN (
-            SELECT visitor_id, MAX(id) AS latest_id
-            FROM viewer_logs{where_sql}
-            GROUP BY visitor_id
-        ) latest ON latest.latest_id = v.id
-        ORDER BY v.id DESC
-        LIMIT 500
-        """, params
+
+    # Extra smart viewer analytics for Super Admin
+    viewer_clock = datetime.strptime(viewer_now(), "%Y-%m-%d %H:%M:%S")
+    last_24h = (viewer_clock - timedelta(hours=24)).strftime("%Y-%m-%d %H:%M:%S")
+    last_7d = (viewer_clock - timedelta(days=7)).strftime("%Y-%m-%d %H:%M:%S")
+    views_24h = connection.execute(
+        "SELECT COUNT(*) FROM viewer_logs WHERE viewed_at >= ?", (last_24h,)
+    ).fetchone()[0]
+    views_7d = connection.execute(
+        "SELECT COUNT(*) FROM viewer_logs WHERE viewed_at >= ?", (last_7d,)
+    ).fetchone()[0]
+    active_visitor_24h = connection.execute(
+        "SELECT COUNT(DISTINCT visitor_id) FROM viewer_logs WHERE viewed_at >= ?", (last_24h,)
+    ).fetchone()[0]
+    high_repeat_count = connection.execute(
+        "SELECT COUNT(*) FROM (SELECT visitor_id FROM viewer_logs GROUP BY visitor_id HAVING COUNT(*) >= 5)"
+    ).fetchone()[0]
+    peak_hour_row = connection.execute(
+        "SELECT substr(viewed_at, 12, 2) AS hour, COUNT(*) AS views FROM viewer_logs GROUP BY hour ORDER BY views DESC LIMIT 1"
+    ).fetchone()
+    peak_day_row = connection.execute(
+        "SELECT substr(viewed_at, 1, 10) AS day, COUNT(*) AS views FROM viewer_logs GROUP BY day ORDER BY views DESC LIMIT 1"
+    ).fetchone()
+    mobile_views = connection.execute(
+        "SELECT COUNT(*) FROM viewer_logs WHERE lower(user_agent) LIKE '%mobile%' OR lower(user_agent) LIKE '%android%' OR lower(user_agent) LIKE '%iphone%'"
+    ).fetchone()[0]
+    desktop_views = max(0, counts["views"] - mobile_views)
+    top_city_row = connection.execute(
+        "SELECT COALESCE(NULLIF(city,''), 'Unknown') AS city_name, COUNT(*) AS views FROM viewer_logs GROUP BY city_name ORDER BY views DESC LIMIT 1"
+    ).fetchone()
+    top_network_row = connection.execute(
+        "SELECT COALESCE(NULLIF(isp,''), NULLIF(organization,''), 'Unknown') AS network_name, COUNT(*) AS views FROM viewer_logs GROUP BY network_name ORDER BY views DESC LIMIT 1"
+    ).fetchone()
+    browser_rows = connection.execute(
+        "SELECT user_agent, COUNT(*) AS views FROM viewer_logs GROUP BY user_agent ORDER BY views DESC LIMIT 200"
     ).fetchall()
+    os_counter = {}
+    browser_counter = {}
+    device_counter = {}
+    for ua_row in browser_rows:
+        ua = str(ua_row["user_agent"] or "")
+        low = ua.lower()
+        views = int(ua_row["views"] or 0)
+        if "edg/" in low or "edge/" in low: browser = "Microsoft Edge"
+        elif "opr/" in low or "opera" in low: browser = "Opera"
+        elif "chrome/" in low and "chromium" not in low: browser = "Chrome"
+        elif "firefox/" in low: browser = "Firefox"
+        elif "safari/" in low and "chrome/" not in low: browser = "Safari"
+        else: browser = "Other / Unknown"
+        if "windows" in low: os_name = "Windows"
+        elif "android" in low: os_name = "Android"
+        elif "iphone" in low or "ipad" in low or "ios" in low: os_name = "iOS / iPadOS"
+        elif "mac os x" in low or "macintosh" in low: os_name = "macOS"
+        elif "linux" in low: os_name = "Linux"
+        else: os_name = "Other / Unknown"
+        if "ipad" in low or "tablet" in low: device = "Tablet"
+        elif "mobile" in low or "iphone" in low or "android" in low: device = "Mobile"
+        else: device = "Desktop / Laptop"
+        browser_counter[browser] = browser_counter.get(browser, 0) + views
+        os_counter[os_name] = os_counter.get(os_name, 0) + views
+        device_counter[device] = device_counter.get(device, 0) + views
 
     db_integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
     admin_count = connection.execute("SELECT COUNT(*) FROM staff WHERE role IN ('admin','superadmin')").fetchone()[0]
@@ -3688,9 +3782,12 @@ def superadmin_dashboard():
     upload_count = sum(1 for item in UPLOAD_DIR.iterdir() if item.is_file()) if UPLOAD_DIR.exists() else 0
     db_size_mb = round(DB_PATH.stat().st_size / (1024 * 1024), 2) if DB_PATH.exists() else 0
     process_uptime_minutes = max(0, int((datetime.now(timezone.utc) - APP_STARTED_AT_UTC).total_seconds() // 60))
+    latest_view_row = connection.execute(
+        "SELECT case_number, case_category, visitor_id, viewed_at FROM viewer_logs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
     connection.close()
     staff_table = "".join(
-        f"<tr><td>{esc(r['username'])}</td><td>{esc(r['role'])}</td><td>{'Active' if r['active'] else 'Disabled'}</td></tr>"
+        f"<tr><td><strong>{esc(r['username'])}</strong></td><td>{esc(r['role'])}</td><td>{'Active' if r['active'] else 'Disabled'}</td><td>{r['login_count'] or 0}</td><td>{esc(r['last_login_at'] or 'Never')}</td></tr>"
         for r in staff_rows
     )
     case_table = "".join(
@@ -3705,6 +3802,62 @@ def superadmin_dashboard():
         parts = [str(row["city"] or "").strip(), str(row["region"] or "").strip(), str(row["country"] or "").strip()]
         return ", ".join(part for part in parts if part) or "Approximate location unavailable"
 
+    def browser_os_device(user_agent):
+        ua = str(user_agent or "")
+        low = ua.lower()
+        if "edg/" in low or "edge/" in low:
+            browser = "Microsoft Edge"
+        elif "opr/" in low or "opera" in low:
+            browser = "Opera"
+        elif "chrome/" in low and "chromium" not in low:
+            browser = "Chrome"
+        elif "firefox/" in low:
+            browser = "Firefox"
+        elif "safari/" in low and "chrome/" not in low:
+            browser = "Safari"
+        elif "msie" in low or "trident/" in low:
+            browser = "Internet Explorer"
+        else:
+            browser = "Other / Unknown Browser"
+        if "windows" in low:
+            os_name = "Windows"
+        elif "android" in low:
+            os_name = "Android"
+        elif "iphone" in low or "ipad" in low or "ios" in low:
+            os_name = "iOS / iPadOS"
+        elif "mac os x" in low or "macintosh" in low:
+            os_name = "macOS"
+        elif "linux" in low:
+            os_name = "Linux"
+        else:
+            os_name = "Other / Unknown OS"
+        if "ipad" in low or "tablet" in low:
+            device = "Tablet"
+        elif "mobile" in low or "iphone" in low or "android" in low:
+            device = "Mobile"
+        else:
+            device = "Desktop / Laptop"
+        return browser, os_name, device
+
+    def observed_span_text(first_viewed, last_viewed):
+        try:
+            first = datetime.fromisoformat(str(first_viewed))
+            last = datetime.fromisoformat(str(last_viewed))
+            seconds = max(0, int((last - first).total_seconds()))
+            days, rem = divmod(seconds, 86400)
+            hours, rem = divmod(rem, 3600)
+            minutes, _ = divmod(rem, 60)
+            parts = []
+            if days:
+                parts.append(f"{days}d")
+            if hours:
+                parts.append(f"{hours}h")
+            if minutes or not parts:
+                parts.append(f"{minutes}m")
+            return " ".join(parts)
+        except (TypeError, ValueError):
+            return "—"
+
     viewer_table = "".join(
         f"<tr><td>{esc(r['case_number'])}</td><td>{esc(r['case_category'])}</td>"
         f"<td>{esc(r['visitor_id'])}</td><td>{esc(r['viewed_at'])}</td>"
@@ -3715,13 +3868,17 @@ def superadmin_dashboard():
         for r in viewer_rows
     )
     visitor_summary_table = "".join(
-        f"<tr><td>{esc(r['visitor_id'])}</td><td>{r['total_views']}</td>"
-        f"<td>{r['cases_viewed']}</td><td>{esc(r['first_viewed'])}</td>"
-        f"<td>{esc(r['last_viewed'])}</td><td>{esc(location_text(r))}</td>"
-        f"<td>{esc(r['postal_code'])}</td><td>{esc(r['timezone'])}</td>"
-        f"<td>{esc(r['latitude'])}, {esc(r['longitude'])}</td>"
-        f"<td>{esc(r['ip_address'])}</td><td>{esc(r['isp'] or r['organization'])}</td>"
-        f"<td>{esc(r['user_agent'])}</td><td>{esc(r['referrer']) or 'Direct'}</td></tr>"
+        (lambda browser, os_name, device: f"<tr><td><strong>{esc(r['visitor_id'])}</strong></td>"
+        f"<td><span class='status'>{'Returning' if r['total_views'] > 1 else 'First recorded'}</span></td>"
+        f"<td>{r['total_views']}</td><td>{r['cases_viewed']}</td>"
+        f"<td>{esc(r['latest_case'] or '—')}</td><td>{esc(r['latest_category'] or '—')}</td>"
+        f"<td>{esc(r['first_viewed'])}</td><td>{esc(r['last_viewed'])}</td>"
+        f"<td>{esc(observed_span_text(r['first_viewed'], r['last_viewed']))}</td>"
+        f"<td>{esc(location_text(r))}</td><td>{esc(r['postal_code'] or '—')}</td>"
+        f"<td>{esc(r['timezone'] or '—')}</td><td>{esc(r['ip_address'] or '—')}</td>"
+        f"<td>{esc(r['isp'] or r['organization'] or '—')}</td>"
+        f"<td>{esc(browser)}</td><td>{esc(os_name)}</td><td>{esc(device)}</td>"
+        f"<td>{esc(r['referrer']) if r['referrer'] else 'Direct'}</td></tr>")(*browser_os_device(r['user_agent']))
         for r in visitor_summary_rows
     )
     max_hour_views = max([r['views'] for r in hourly_rows], default=1)
@@ -3738,91 +3895,14 @@ def superadmin_dashboard():
         f"<tr><td>{esc(r['country_name'])}</td><td>{r['visitors']}</td><td>{r['views']}</td></tr>"
         for r in country_rows
     )
-    map_points = []
-    for r in map_rows:
-        try:
-            lat = float(r["latitude"])
-            lon = float(r["longitude"])
-            if not (-90 <= lat <= 90 and -180 <= lon <= 180):
-                continue
-        except (TypeError, ValueError):
-            continue
-        map_points.append({
-            "visitor_id": str(r["visitor_id"] or ""),
-            "case_number": str(r["case_number"] or ""),
-            "category": str(r["case_category"] or ""),
-            "viewed_at": str(r["viewed_at"] or ""),
-            "city": str(r["city"] or ""),
-            "region": str(r["region"] or ""),
-            "country": str(r["country"] or ""),
-            "lat": lat,
-            "lon": lon,
-        })
-    map_points_json = json.dumps(map_points, ensure_ascii=False).replace("</", "<\\/")
-    superadmin_identity = "Super Admin #1" if is_primary_superadmin() else "Super Admin #2"
-    if is_primary_superadmin():
-        superadmin_extra_tabs = """
-            <button type="button" class="superadmin-tab" onclick="showSuperAdminTab('private-tab', this)">📝 Private Workspace</button>
-            <button type="button" class="superadmin-tab" onclick="showSuperAdminTab('system-tab', this)">⚙️ System Control</button>
-        """
-        superadmin_extra_panels = f"""
-        <div id="private-tab" class="superadmin-tab-panel">
-            <h2 class="center">📝 Super Admin #1 Private Workspace</h2>
-            <p class="center small">Only account <strong>{esc(PRIMARY_SUPERADMIN_USERNAME)}</strong> can open this workspace.</p>
-            <div class="grid">
-                <div class="card centered"><span class="stat-number">PRIVATE</span>Dedicated Notepad</div>
-                <div class="card centered"><span class="stat-number">ISOLATED</span>Account-scoped storage</div>
-                <div class="card centered"><span class="stat-number">SA #1</span>Owner Workspace</div>
-            </div>
-            <div class="card centered">
-                <p>Your private note is completely separated from Super Admin #2.</p>
-                <a class="button" href="{url_for('private_notepad')}">📝 Open Private Notepad</a>
-            </div>
-        </div>
-        <div id="system-tab" class="superadmin-tab-panel">
-            <h2 class="center">⚙️ Super Admin #1 System Control Center</h2>
-            <p class="small center">Additional administrative tools available only to the first generated Super Admin account.</p>
-            <div class="grid">
-                <div class="card stat"><span class="stat-number">{esc(str(db_integrity).upper())}</span>Database Integrity</div>
-                <div class="card stat"><span class="stat-number">{db_size_mb} MB</span>Database Size</div>
-                <div class="card stat"><span class="stat-number">{upload_count}</span>Uploaded Files</div>
-                <div class="card stat"><span class="stat-number">{process_uptime_minutes}m</span>Process Uptime</div>
-            </div>
-            <section class="card">
-                <h3 class="center">📊 Case & Staff Snapshot</h3>
-                <div class="grid">
-                    <div><strong>Criminal Cases:</strong> {criminal_cases_count}</div>
-                    <div><strong>Civil Cases:</strong> {civil_cases_count}</div>
-                    <div><strong>Active:</strong> {active_cases_count}</div>
-                    <div><strong>Archived:</strong> {archived_cases_count}</div>
-                    <div><strong>Terminated:</strong> {terminated_cases_count}</div>
-                    <div><strong>Active Staff:</strong> {active_staff_count}</div>
-                    <div><strong>Admin / Super Admin Accounts:</strong> {admin_count}</div>
-                    <div><strong>MongoDB:</strong> {"Connected" if MONGO_READY else ("Configured, not connected" if MONGODB_URI else "Not configured")}</div>
-                </div>
-            </section>
-            <section class="card">
-                <h3 class="center">🔐 Security Configuration</h3>
-                <div class="grid">
-                    <div><strong>Session timeout:</strong> 5 minutes</div>
-                    <div><strong>HTTP-only cookies:</strong> Enabled</div>
-                    <div><strong>SameSite:</strong> Lax</div>
-                    <div><strong>HTTPS cookie:</strong> {"Enabled on Render" if os.environ.get("RENDER") else "Not forced locally"}</div>
-                </div>
-            </section>
-            <section class="card centered">
-                <h3>🧰 Primary Account Tools</h3>
-                <div class="actions" style="justify-content:center;flex-wrap:wrap">
-                    <a class="button" href="{url_for('backup_database')}">💾 Download Database Backup</a>
-                    <a class="button secondary" href="{url_for('export_audit_activity_csv')}">🧾 Export Audit CSV</a>
-                    <a class="button secondary" href="{url_for('private_notepad')}">📝 Open Private Notes</a>
-                </div>
-            </section>
-        </div>
-        """
-    else:
-        superadmin_extra_tabs = ""
-        superadmin_extra_panels = ""
+    def compact_stats(counter):
+        return "".join(
+            f"<tr><td>{esc(name)}</td><td>{value}</td><td>{round((value / counts['views']) * 100, 1) if counts['views'] else 0}%</td></tr>"
+            for name, value in sorted(counter.items(), key=lambda item: item[1], reverse=True)
+        )
+    browser_table = compact_stats(browser_counter)
+    os_table = compact_stats(os_counter)
+    device_table = compact_stats(device_counter)
     filter_query_string = "&".join(
         f"{esc(k)}={esc(v)}" for k, v in [
             ("viewer_q", filter_q), ("viewer_category", filter_category),
@@ -3832,6 +3912,129 @@ def superadmin_dashboard():
     export_href = url_for("export_viewer_activity_csv")
     if filter_query_string:
         export_href += "?" + filter_query_string
+
+    superadmin_identity = "SUPER ADMIN #1" if is_primary_superadmin() else "SUPER ADMIN #2"
+    superadmin_extra_tabs = (
+        "<button type='button' class='superadmin-tab' onclick=\"showSuperAdminTab('insights-tab', this)\">📊 Smart Insights</button>"
+        "<button type='button' class='superadmin-tab' onclick=\"showSuperAdminTab('health-tab', this)\">🩺 System Health</button>"
+        "<button type='button' class='superadmin-tab' onclick=\"showSuperAdminTab('accounts-tab', this)\">👥 Account Activity</button>"
+    )
+    superadmin_extra_panels = ""
+    if is_primary_superadmin():
+        superadmin_extra_tabs += "<button type='button' class='superadmin-tab' onclick=\"showSuperAdminTab('private-tab', this)\">🔒 Private Workspace</button>"
+        superadmin_extra_tabs += "<button type='button' class='superadmin-tab' onclick=\"showSuperAdminTab('control-tab', this)\">⚙️ Control Center</button>"
+
+    upcoming_hearings = connection.execute(
+        "SELECT COUNT(*) FROM hearings WHERE hearing_date >= ? AND hearing_date <= ? AND hearing_status = 'Scheduled'",
+        (viewer_clock.strftime("%Y-%m-%d"), (viewer_clock + timedelta(days=7)).strftime("%Y-%m-%d")),
+    ).fetchone()[0]
+    overdue_hearings = connection.execute(
+        "SELECT COUNT(*) FROM hearings WHERE hearing_date < ? AND hearing_status = 'Scheduled'",
+        (viewer_clock.strftime("%Y-%m-%d"),),
+    ).fetchone()[0]
+    latest_audit_row = audit_rows[0] if audit_rows else None
+    superadmin_extra_panels += f"""
+        <div id="insights-tab" class="superadmin-tab-panel">
+            <h2 class="center">📊 Smart Viewer Insights</h2>
+            <p class="center small">Additional analytics calculated from the existing anonymous viewer records.</p>
+            <div class="viewer-kpi-grid">
+                <div class="viewer-kpi"><strong>{views_24h}</strong>Views — Last 24 Hours</div>
+                <div class="viewer-kpi"><strong>{views_7d}</strong>Views — Last 7 Days</div>
+                <div class="viewer-kpi"><strong>{active_visitor_24h}</strong>Active Visitors — Last 24 Hours</div>
+                <div class="viewer-kpi"><strong>{high_repeat_count}</strong>High-Repeat Visitors</div>
+                <div class="viewer-kpi"><strong>{esc(peak_hour_row['hour'] + ':00' if peak_hour_row else '—')}</strong>Peak Hour</div>
+                <div class="viewer-kpi"><strong>{esc(peak_day_row['day'] if peak_day_row else '—')}</strong>Busiest Recorded Day</div>
+            </div>
+            <div class="grid" style="grid-template-columns:repeat(3,1fr);align-items:start;">
+                <section class="card table-wrap"><h3 class="center">🌐 Browsers</h3><table><thead><tr><th>Browser</th><th>Views</th><th>Share</th></tr></thead><tbody>{browser_table or '<tr><td colspan="3">No browser data.</td></tr>'}</tbody></table></section>
+                <section class="card table-wrap"><h3 class="center">💻 Operating Systems</h3><table><thead><tr><th>OS</th><th>Views</th><th>Share</th></tr></thead><tbody>{os_table or '<tr><td colspan="3">No OS data.</td></tr>'}</tbody></table></section>
+                <section class="card table-wrap"><h3 class="center">📱 Device Mix</h3><table><thead><tr><th>Device</th><th>Views</th><th>Share</th></tr></thead><tbody>{device_table or '<tr><td colspan="3">No device data.</td></tr>'}</tbody></table></section>
+            </div>
+            <section class="card">
+                <h3 class="center">🔎 Attention Indicators</h3>
+                <div class="grid">
+                    <div><strong>Top City</strong><br><span class="small">{esc(top_city_row['city_name'] if top_city_row else 'No data')}</span></div>
+                    <div><strong>Top Network / ISP</strong><br><span class="small">{esc(top_network_row['network_name'] if top_network_row else 'No data')}</span></div>
+                    <div><strong>Mobile Views</strong><br><span class="small">{mobile_views} ({round((mobile_views / counts['views']) * 100, 1) if counts['views'] else 0}%)</span></div>
+                    <div><strong>Desktop Views</strong><br><span class="small">{desktop_views} ({round((desktop_views / counts['views']) * 100, 1) if counts['views'] else 0}%)</span></div>
+                    <div><strong>Database Integrity</strong><br><span class="small">{esc(db_integrity)}</span></div>
+                    <div><strong>Application Uptime</strong><br><span class="small">{process_uptime_minutes} minutes</span></div>
+                    <div><strong>Upcoming Hearings (7 Days)</strong><br><span class="small">{upcoming_hearings}</span></div>
+                    <div><strong>Overdue Scheduled Hearings</strong><br><span class="small">{overdue_hearings}</span></div>
+                    <div><strong>Latest Viewer Event</strong><br><span class="small">{esc((latest_view_row['case_number'] + ' · ' + latest_view_row['viewed_at']) if latest_view_row else 'No viewer events')}</span></div>
+                    <div><strong>Latest Audit Event</strong><br><span class="small">{esc((latest_audit_row['action'] + ' · ' + latest_audit_row['created_at']) if latest_audit_row else 'No audit events')}</span></div>
+                </div>
+            </section>
+        </div>
+        <div id="health-tab" class="superadmin-tab-panel">
+            <h2 class="center">🩺 System Health & Control</h2>
+            <div class="viewer-kpi-grid">
+                <div class="viewer-kpi"><strong>{esc(db_integrity)}</strong>SQLite Integrity</div>
+                <div class="viewer-kpi"><strong>{db_size_mb} MB</strong>Database Size</div>
+                <div class="viewer-kpi"><strong>{upload_count}</strong>Stored Uploads</div>
+                <div class="viewer-kpi"><strong>{active_staff_count}</strong>Active Staff</div>
+                <div class="viewer-kpi"><strong>{admin_count}</strong>Admin / Super Admin</div>
+                <div class="viewer-kpi"><strong>{process_uptime_minutes}m</strong>Process Uptime</div>
+            </div>
+            <section class="card table-wrap">
+                <h3 class="center">Case Status Health</h3>
+                <table><thead><tr><th>Metric</th><th>Count</th></tr></thead><tbody>
+                    <tr><td>Criminal Cases</td><td>{criminal_cases_count}</td></tr>
+                    <tr><td>Civil Cases</td><td>{civil_cases_count}</td></tr>
+                    <tr><td>Active Cases</td><td>{active_cases_count}</td></tr>
+                    <tr><td>Archived Cases</td><td>{archived_cases_count}</td></tr>
+                    <tr><td>Terminated Cases</td><td>{terminated_cases_count}</td></tr>
+                    <tr><td>Hearings</td><td>{counts['hearings']}</td></tr>
+                    <tr><td>Announcements</td><td>{counts['notices']}</td></tr>
+                </tbody></table>
+            </section>
+            <section class="card">
+                <h3 class="center">🛠 Super Admin Tools</h3>
+                <div class="actions" style="justify-content:center;flex-wrap:wrap;">
+                    <a class="button" href="{url_for('backup_database') if is_primary_superadmin() else '#'}">💾 Database Backup</a>
+                    <a class="button secondary" href="{url_for('export_audit_activity_csv') if is_primary_superadmin() else '#'}">⬇️ Export Audit CSV</a>
+                    <a class="button secondary" href="{export_href}">⬇️ Export Viewer CSV</a>
+                </div>
+                <p class="small center">Database backup and audit export remain limited to Super Admin #1.</p>
+            </section>
+        </div>
+        <div id="accounts-tab" class="superadmin-tab-panel">
+            <h2 class="center">👥 Account Activity</h2>
+            <p class="center small">Login history indicators for staff and administrator accounts.</p>
+            <section class="card table-wrap">
+                <table><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Login Count</th><th>Last Login</th></tr></thead><tbody>{staff_table}</tbody></table>
+            </section>
+        </div>
+        <div id="private-tab" class="superadmin-tab-panel">
+            <h2 class="center">🔒 Super Admin #1 Private Workspace</h2>
+            <p class="center small">This tab appears only for the primary Super Admin account.</p>
+            <div class="grid">
+                <section class="card centered"><h3>📝 Private Notepad</h3><p>Personal notes are isolated by staff account ID.</p><a class="button" href="{url_for('private_notepad')}">Open Private Notepad</a></section>
+                <section class="card centered"><h3>💾 Database Backup</h3><p>Create/download the current SQLite database backup.</p><a class="button secondary" href="{url_for('backup_database')}">Download Backup</a></section>
+                <section class="card centered"><h3>📤 Audit Export</h3><p>Export recent audit activity as CSV.</p><a class="button secondary" href="{url_for('export_audit_activity_csv')}">Export Audit CSV</a></section>
+            </div>
+            <section class="card"><div class="notice warning"><strong>Private boundary:</strong> Super Admin #2 cannot open this private workspace or read the Super Admin #1 notepad.</div></section>
+        </div>
+        <div id="control-tab" class="superadmin-tab-panel">
+            <h2 class="center">⚙️ Super Admin #1 Control Center</h2>
+            <div class="viewer-kpi-grid">
+                <div class="viewer-kpi"><strong>{esc(sys.version.split()[0])}</strong>Python Runtime</div>
+                <div class="viewer-kpi"><strong>{'Connected' if MONGO_READY else 'Not Connected'}</strong>MongoDB</div>
+                <div class="viewer-kpi"><strong>{'Configured' if bool(os.environ.get('SECRET_KEY')) else 'Fallback'}</strong>Secret Key Source</div>
+                <div class="viewer-kpi"><strong>{esc(viewer_now())}</strong>Server Time (PHT)</div>
+            </div>
+            <section class="card">
+                <h3 class="center">Maintenance & Data Tools</h3>
+                <div class="actions" style="justify-content:center;flex-wrap:wrap;">
+                    <a class="button" href="{url_for('backup_database')}">💾 Backup Database</a>
+                    <a class="button secondary" href="{url_for('export_audit_activity_csv')}">🧾 Export Audit Log</a>
+                    <a class="button secondary" href="{export_href}">👁 Export Viewer Data</a>
+                    <a class="button secondary" href="{url_for('staff_accounts')}">👥 Manage Staff Accounts</a>
+                </div>
+                <p class="small center">Control Center actions are restricted to Super Admin #1.</p>
+            </section>
+        </div>
+    """
     body = f"""
     <section class="hero">
         <h1>🛡️ Super Admin</h1>
@@ -3843,7 +4046,7 @@ def superadmin_dashboard():
     </section>
     <section class="card table-wrap">
         <h2 class="center">Registered Accounts</h2>
-        <table><thead><tr><th>Username</th><th>Role</th><th>Status</th></tr></thead><tbody>{staff_table or '<tr><td colspan="3">None</td></tr>'}</tbody></table>
+        <table><thead><tr><th>Username</th><th>Role</th><th>Status</th><th>Login Count</th><th>Last Login</th></tr></thead><tbody>{staff_table or '<tr><td colspan="5">None</td></tr>'}</tbody></table>
     </section>
     <section class="card table-wrap">
         <h2 class="center">Case Overview</h2>
@@ -3893,17 +4096,19 @@ def superadmin_dashboard():
                 <div class="viewer-kpi"><strong>{today_views}</strong>Views Today</div>
             </div>
 
-            <section class="card world-map-card">
-                <div class="world-map-heading">
-                    <div>
-                        <h3>🌍 Global Visitor Map</h3>
-                        <p class="small">Each marker represents the latest known approximate IP-based location for a tracked visitor within the current filter.</p>
-                    </div>
-                    <span class="viewer-chip">{len(map_points)} mapped visitor{'' if len(map_points)==1 else 's'}</span>
+            <section class="card viewer-intelligence">
+                <h3 class="center">🧠 Visitor Intelligence</h3>
+                <div class="grid viewer-detail-stats">
+                    <div class="card stat"><span class="stat-number">{today_unique_visitors}</span>Unique Visitors Today</div>
+                    <div class="card stat"><span class="stat-number">{returning_visitors}</span>Returning Visitors</div>
+                    <div class="card stat"><span class="stat-number">{avg_views_per_visitor}</span>Avg. Views / Visitor</div>
+                    <div class="card stat"><span class="stat-number">{unique_cities}</span>Unique Cities</div>
+                    <div class="card stat"><span class="stat-number">{unique_networks}</span>Networks / ISPs</div>
+                    <div class="card stat"><span class="stat-number">{filtered_summary['countries']}</span>Countries Seen</div>
                 </div>
-                <div id="viewer-world-map" class="viewer-world-map"></div>
-                <p class="small center" style="margin-bottom:0">Location is approximate and may point to a nearby network or ISP location. It is not exact GPS.</p>
+                <p class="small center">“Returning” means the same anonymous visitor ID has more than one recorded public case-page view. The system does not identify the visitor by real name.</p>
             </section>
+
 
             <div class="grid viewer-detail-stats">
                 <div class="card stat"><span class="stat-number">{counts['views']}</span>Total Case Views</div>
@@ -3944,9 +4149,10 @@ def superadmin_dashboard():
 
             <section class="card table-wrap">
                 <h3 class="center">👤 Visitor Directory</h3>
-                <p class="small">One row per anonymous visitor ID. This is a technical identifier created by the site, not the person's real identity.</p>
-                <table class="viewer-detail-table"><thead><tr><th>Visitor ID</th><th>Total Views</th><th>Cases Viewed</th><th>First Seen</th><th>Last Seen</th><th>Approx. Location</th><th>Postal</th><th>Timezone</th><th>Coordinates</th><th>IP</th><th>Network</th><th>Browser / Device</th><th>Referrer</th></tr></thead>
-                <tbody>{visitor_summary_table or '<tr><td colspan="13">No matching visitors.</td></tr>'}</tbody></table>
+                <p class="small">One row per anonymous visitor. The directory combines activity, timing, location, network, and device information so Super Admin can review a visitor without relying on a map.</p>
+                <div class="table-scroll-hint small">← Scroll horizontally to see all visitor fields →</div>
+                <table class="viewer-detail-table"><thead><tr><th>Visitor ID</th><th>Visitor Type</th><th>Total Views</th><th>Cases Viewed</th><th>Latest Case</th><th>Category</th><th>First Seen</th><th>Last Seen</th><th>Observed Span</th><th>Approx. Location</th><th>Postal</th><th>Timezone</th><th>IP</th><th>Network / ISP</th><th>Browser</th><th>Operating System</th><th>Device</th><th>Referrer</th></tr></thead>
+                <tbody>{visitor_summary_table or '<tr><td colspan="18">No matching visitors.</td></tr>'}</tbody></table>
             </section>
 
             <section class="card table-wrap">
@@ -3962,34 +4168,6 @@ def superadmin_dashboard():
         </div>
         {superadmin_extra_panels}
     </section>
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
-    <script>
-    const viewerMapPoints = {map_points_json};
-    document.addEventListener('DOMContentLoaded', function() {{
-        var mapEl = document.getElementById('viewer-world-map');
-        if (!mapEl || typeof L === 'undefined') return;
-        var map = L.map('viewer-world-map', {{worldCopyJump: true, minZoom: 1, maxZoom: 18}}).setView([20, 0], 2);
-        L.tileLayer('https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
-            maxZoom: 18,
-            attribution: '&copy; OpenStreetMap contributors'
-        }}).addTo(map);
-        viewerMapPoints.forEach(function(point) {{
-            var parts = [point.city, point.region, point.country].filter(Boolean);
-            var location = parts.length ? parts.join(', ') : 'Approximate location unavailable';
-            var popup = '<strong>' + escapeMapHtml(point.case_number) + '</strong><br>' +
-                escapeMapHtml(point.category) + '<br>' +
-                'Visitor: ' + escapeMapHtml(point.visitor_id) + '<br>' +
-                escapeMapHtml(location) + '<br>' +
-                'Viewed: ' + escapeMapHtml(point.viewed_at);
-            L.marker([point.lat, point.lon]).addTo(map).bindPopup(popup);
-        }});
-    }});
-    function escapeMapHtml(value) {{
-        return String(value ?? '').replace(/[&<>"']/g, function(char) {{
-            return {{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}}[char];
-        }});
-    }}
     var viewerAutoRefresh = null;
     function showSuperAdminTab(tabId, button) {{
         document.querySelectorAll('.superadmin-tab-panel').forEach(function(panel) {{ panel.classList.remove('active'); }});
