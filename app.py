@@ -2408,7 +2408,7 @@ def staff_dashboard():
     </section>
     """
     return render_page(tr("staff_dashboard"), body, staff_page=True)
-CASE_STATUSES = ("Archived", "Active", "Terminated")
+CASE_STATUSES = ("Archived", "Active", "Trial Suspended", "Terminated")
 TERMINATION_REASONS = ("Provisionally Dismissed", "Dismissed", "Decided")
 
 
