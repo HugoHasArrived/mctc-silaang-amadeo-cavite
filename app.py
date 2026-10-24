@@ -41,26 +41,35 @@ except ImportError:
     GridFSBucket = None
     MONGODB_DRIVER_AVAILABLE = False
 BASE_DIR = Path(__file__).resolve().parent
-DATA_DIR = Path(os.environ.get("DATA_DIR", "/var/data"))
+# Vercel's deployed application directory is read-only. Use /tmp there only
+# as a temporary runtime location; persistent records must be restored from
+# MongoDB or stored in a persistent database service.
+IS_VERCEL = bool(os.environ.get("VERCEL"))
+_DEFAULT_DATA_DIR = "/tmp/mctc_data" if IS_VERCEL else "/var/data"
+DATA_DIR = Path(os.environ.get("DATA_DIR", _DEFAULT_DATA_DIR))
 try:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     _data_dir_ok = os.access(DATA_DIR, os.W_OK)
 except OSError:
     _data_dir_ok = False
 if not _data_dir_ok:
-    DATA_DIR = Path(os.environ.get("FALLBACK_DATA_DIR", BASE_DIR / "data"))
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    _data_dir_ok = os.access(DATA_DIR, os.W_OK)
+    _fallback_default = "/tmp/mctc_data" if IS_VERCEL else str(BASE_DIR / "data")
+    DATA_DIR = Path(os.environ.get("FALLBACK_DATA_DIR", _fallback_default))
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        _data_dir_ok = os.access(DATA_DIR, os.W_OK)
+    except OSError:
+        _data_dir_ok = False
 if not _data_dir_ok:
     raise RuntimeError(
         "Application data directory is not writable. Set DATA_DIR to a writable "
-        "directory (on Render, /var/data is recommended)."
+        "directory. On Vercel, use /tmp/mctc_data for temporary runtime files; "
+        "on Render, /var/data is recommended for a persistent disk."
     )
 DB_PATH = DATA_DIR / "mctc_court.db"
 UPLOAD_DIR = DATA_DIR / "uploads"
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 STATIC_DIR = BASE_DIR / "static"
-STATIC_DIR.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__, static_folder="static")
 app.secret_key = os.environ.get(
     "SECRET_KEY",
